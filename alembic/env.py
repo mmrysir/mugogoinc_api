@@ -29,7 +29,7 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = settings.database_url
+    url = settings.sync_database_url
     context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
 
     with context.begin_transaction():
@@ -45,7 +45,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_migrations_online() -> None:
     connectable: AsyncEngine = create_async_engine(
-        settings.database_url.replace("sqlite+aiosqlite://", "sqlite+aiosqlite://"),
+        settings.database_url,
         poolclass=pool.NullPool,
     )
 

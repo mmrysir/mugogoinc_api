@@ -57,6 +57,16 @@ class Settings(BaseSettings):
             f"/{self.wa_phone_number_id}/messages"
         )
 
+    @property
+    def sync_database_url(self) -> str:
+        """Return synchronous database URL for Alembic migrations."""
+        url = self.database_url
+        if url.startswith("postgresql+asyncpg://"):
+            return url.replace("postgresql+asyncpg://", "postgresql://")
+        elif url.startswith("sqlite+aiosqlite://"):
+            return url.replace("sqlite+aiosqlite://", "sqlite://")
+        return url
+
 
 settings = Settings()
 
