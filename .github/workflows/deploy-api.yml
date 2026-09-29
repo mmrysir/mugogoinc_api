@@ -18,6 +18,9 @@ jobs:
           script: |
             set -e
 
+            # ── Ensure PM2 and common binary paths are in PATH ─────────────
+            export PATH=$PATH:/usr/local/bin:/usr/bin:~/.nvm/versions/node/$(ls ~/.nvm/versions/node 2>/dev/null | tail -n 1)/bin
+
             # ── Create app folder if it doesn't exist ─────────────────────────
             mkdir -p /var/www/mugogoinc/mugogoinc_api
             cd /var/www/mugogoinc/mugogoinc_api
@@ -42,13 +45,15 @@ jobs:
             pip install --upgrade pip
             pip install -r requirements.txt
 
-            # ── Run database migrations with PYTHONPATH ──────────────────────
+            # ── Run database migrations ──────────────────────────────────────
             PYTHONPATH=. alembic upgrade head
 
             # ── Start or restart under PM2 ───────────────────────────────────
-            pm2 describe mugogo-api > /dev/null 2>&1 \
-              && pm2 restart mugogo-api --update-env \
-              || pm2 start "venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000" \
+            PM2_PATH=$(which pm2 || echo "/usr/local/bin/pm2")
+
+            $PM2_PATH describe mugogo-api > /dev/null 2>&1 \
+              && $PM2_PATH restart mugogo-api --update-env \
+              || $PM2_PATH start "venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000" \
                    --name "mugogo-api"
 
-            pm2 save
+            $PM2_PATH save
