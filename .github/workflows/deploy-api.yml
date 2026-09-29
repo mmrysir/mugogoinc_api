@@ -18,7 +18,7 @@ jobs:
           script: |
             set -e
 
-            # ── Create app folder if it doesn't exist (workflow handles this) ─
+            # ── Create app folder if it doesn't exist ─────────────────────────
             mkdir -p /var/www/mugogoinc/mugogoinc_api
             cd /var/www/mugogoinc/mugogoinc_api
 
@@ -42,12 +42,12 @@ jobs:
             pip install --upgrade pip
             pip install -r requirements.txt
 
-            # ── Run database migrations ──────────────────────────────────────
+            # ── Run database migrations with PYTHONPATH ──────────────────────
             PYTHONPATH=. alembic upgrade head
 
             # ── Start or restart under PM2 ───────────────────────────────────
             pm2 describe mugogo-api > /dev/null 2>&1 \
-              && pm2 restart mugogo-api \
+              && pm2 restart mugogo-api --update-env \
               || pm2 start "venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000" \
                    --name "mugogo-api"
 
