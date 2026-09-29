@@ -43,7 +43,7 @@ jobs:
             pip install -r requirements.txt
 
             # ── Run database migrations ──────────────────────────────────────
-            alembic upgrade head
+            PYTHONPATH=. alembic upgrade head
 
             # ── Start or restart under PM2 ───────────────────────────────────
             pm2 describe mugogo-api > /dev/null 2>&1 \
