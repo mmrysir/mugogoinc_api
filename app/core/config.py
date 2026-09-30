@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     cpl_threshold_usd: float = 15.0
 
     # ── CORS ─────────────────────────────────────────────────────────────────
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "https://engine.mugogoinc.com,http://localhost:3000,http://localhost:3002"
 
     @property
     def allowed_origins(self) -> List[str]:

@@ -1,0 +1,41 @@
+name: Deploy Mugogo API
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "--> Navigating to API directory"
+            cd /var/www/mugogoinc/mugogoinc_api
+
+            echo "--> Pulling latest code from main"
+            git pull origin main
+
+            echo "--> Activating Python Virtual Environment and updating dependencies"
+            if [ -d "venv" ]; then
+              source venv/bin/activate
+            else
+              python3 -m venv venv
+              source venv/bin/activate
+            fi
+            pip install --upgrade pip
+            pip install -r requirements.txt
+
+            echo "--> Restarting FastAPI application on Port 8001 via PM2"
+            pm2 delete mugogo-api 2>/dev/null || true
+            pm2 start "uvicorn app.main:app --host 127.0.0.1 --port 8001" --name "mugogo-api"
+            pm2 save
