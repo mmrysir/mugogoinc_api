@@ -19,6 +19,11 @@ jobs:
           username: ${{ secrets.SERVER_USER || secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY || secrets.SSH_KEY }}
           script: |
+            # Load environment PATH for NVM, Node, and PM2
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            export PATH=$PATH:/usr/local/bin:~/.nvm/versions/node/$(ls ~/.nvm/versions/node 2>/dev/null | tail -n 1)/bin
+
             echo "--> Navigating to API directory"
             cd /var/www/mugogoinc/mugogoinc_api
 
