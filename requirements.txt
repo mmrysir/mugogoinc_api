@@ -14,3 +14,7 @@ phonenumbers==8.13.44
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 PyJWT==2.8.0
+google-ads==33.0.0
+google-auth==2.59.1
+google-auth-httplib2==0.4.3
+google-auth-oauthlib==1.5.0

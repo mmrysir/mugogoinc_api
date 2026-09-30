@@ -16,6 +16,7 @@ from app.models.lead import AbandonedLead, CrmForwardStatus, DeliveryStatus, Lea
 from app.schemas.lead import IngestResponse, LeadIngestRequest
 from app.services.attribution import sync_exclusion_audience
 from app.services.deduplication import compute_dedupe_hash, find_duplicate
+from app.services.google_ads import upload_offline_conversion
 from app.tasks.routing import dispatch_lead
 
 logger = logging.getLogger("mugogo.ingest")
@@ -206,6 +207,13 @@ async def ingest_lead(
         gclid=gclid,
         fbclid=fbclid,
     )
+    
+    if lead.gclid:
+        background_tasks.add_task(
+            upload_offline_conversion,
+            gclid=lead.gclid,
+            conversion_time=lead.created_at
+        )
 
     return IngestResponse(
         lead_id=lead.id,
