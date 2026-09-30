@@ -55,6 +55,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Create a SUPER_ADMIN user.")
     parser.add_argument("--email", help="Admin email address")
     parser.add_argument("--name", help="Admin display name")
+    parser.add_argument("--password", help="Admin password")
     args = parser.parse_args()
 
     email = args.email or input("Email: ").strip()
@@ -64,12 +65,12 @@ def main() -> None:
         print("Email and name are required.", file=sys.stderr)
         sys.exit(1)
 
-    password = getpass.getpass("Password: ")
-    confirm = getpass.getpass("Confirm password: ")
-
-    if password != confirm:
-        print("Passwords do not match.", file=sys.stderr)
-        sys.exit(1)
+    password = args.password or getpass.getpass("Password: ")
+    if not args.password:
+        confirm = getpass.getpass("Confirm password: ")
+        if password != confirm:
+            print("Passwords do not match.", file=sys.stderr)
+            sys.exit(1)
 
     if len(password) < 8:
         print("Password must be at least 8 characters.", file=sys.stderr)
