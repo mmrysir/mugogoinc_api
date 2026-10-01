@@ -122,3 +122,81 @@ async def reject_user(
 
     await db.delete(user)
     return {"message": f"User {user.email} has been rejected and removed."}
+
+
+@router.patch("/{user_id}/freeze", response_model=UserResponse)
+async def freeze_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPER_ADMIN, UserRole.MANAGER)),
+) -> User:
+    """Freeze/pause an agent account."""
+    user = await db.scalar(select(User).where(User.id == user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot freeze your own account",
+        )
+
+    if user.role == UserRole.SUPER_ADMIN and current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Super Admins can freeze Super Admin accounts",
+        )
+
+    user.is_frozen = True
+    await db.flush()
+    return user
+
+
+@router.patch("/{user_id}/unfreeze", response_model=UserResponse)
+async def unfreeze_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.SUPER_ADMIN, UserRole.MANAGER)),
+) -> User:
+    """Unfreeze/resume an agent account."""
+    user = await db.scalar(select(User).where(User.id == user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.is_frozen = False
+    await db.flush()
+    return user
+
+
+@router.delete("/{user_id}", response_model=dict)
+async def delete_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPER_ADMIN, UserRole.MANAGER)),
+) -> dict:
+    """Delete a user account."""
+    user = await db.scalar(select(User).where(User.id == user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own account",
+        )
+
+    if user.role == UserRole.SUPER_ADMIN and current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Super Admins can delete Super Admin accounts",
+        )
+
+    # Safely unassign user from any assigned organizations before deletion
+    from app.models.organization import Organization
+    org_result = await db.execute(select(Organization).where(Organization.assigned_agent_id == user.id))
+    for org in org_result.scalars().all():
+        org.assigned_agent_id = None
+
+    await db.delete(user)
+    await db.flush()
+    return {"message": f"User {user.email} has been deleted."}

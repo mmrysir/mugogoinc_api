@@ -146,13 +146,18 @@ async def assign_agent(
 
     if agent_id:
         agent_result = await db.execute(
-            select(User).where(User.id == agent_id, User.role == UserRole.AGENT, User.is_approved == True)  # noqa: E712
+            select(User).where(
+                User.id == agent_id,
+                User.role == UserRole.AGENT,
+                User.is_approved == True,  # noqa: E712
+                User.is_frozen == False,   # noqa: E712
+            )
         )
         agent = agent_result.scalar_one_or_none()
         if not agent:
             raise HTTPException(
                 status_code=404,
-                detail="Agent not found or not yet approved",
+                detail="Agent not found, not approved, or account is frozen",
             )
 
     org.assigned_agent_id = agent_id

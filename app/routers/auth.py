@@ -62,6 +62,12 @@ async def login(payload: LoginIn, db: AsyncSession = Depends(get_db)) -> Any:
     if not user or not security.verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    if user.is_frozen:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="ACCOUNT_FROZEN",
+        )
+
     # Auto-approve SUPER_ADMIN and MANAGER roles if needed, and only block unapproved AGENTs
     if user.role in (UserRole.SUPER_ADMIN, UserRole.MANAGER):
         if not user.is_approved:
@@ -91,6 +97,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     user = await db.scalar(q)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if user.is_frozen:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ACCOUNT_FROZEN")
     return user
 
 
