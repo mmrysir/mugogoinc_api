@@ -40,6 +40,10 @@ jobs:
             pip install --upgrade pip
             pip install -r requirements.txt
 
+            echo "--> Running Alembic Database Migrations"
+            # Automatically apply pending schema migrations to mugogo_db
+            alembic upgrade head || (alembic stamp head && alembic upgrade head)
+
             echo "--> Restarting FastAPI application on Port 8001 via PM2"
             pm2 delete mugogo-api 2>/dev/null || true
             pm2 start "uvicorn app.main:app --host 127.0.0.1 --port 8001" --name "mugogo-api"
