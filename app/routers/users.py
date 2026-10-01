@@ -47,6 +47,7 @@ async def create_user(
         hashed_password=security.hash_password(payload.password),
         phone_number=payload.phone_number,
         role=payload.role,
+        is_approved=True,  # Admin-created users are auto-approved
     )
     db.add(user)
     await db.flush()
@@ -73,3 +74,46 @@ async def update_user_role(
     user.role = payload.role
     await db.flush()
     return user
+
+
+@router.patch("/{user_id}/approve", response_model=UserResponse)
+async def approve_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.SUPER_ADMIN, UserRole.MANAGER)),
+) -> User:
+    """Approve a pending agent account request."""
+    user = await db.scalar(select(User).where(User.id == user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is already approved",
+        )
+
+    user.is_approved = True
+    await db.flush()
+    return user
+
+
+@router.patch("/{user_id}/reject", response_model=dict)
+async def reject_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.SUPER_ADMIN, UserRole.MANAGER)),
+) -> dict:
+    """Reject and delete a pending agent account request."""
+    user = await db.scalar(select(User).where(User.id == user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot reject an already approved user",
+        )
+
+    await db.delete(user)
+    return {"message": f"User {user.email} has been rejected and removed."}

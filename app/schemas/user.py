@@ -28,4 +28,5 @@ class UserResponse(BaseModel):
     name: str
     phone_number: Optional[str]
     role: UserRole
+    is_approved: bool = False
     created_at: Optional[datetime] = None

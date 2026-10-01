@@ -33,6 +33,10 @@ class User(Base):
         default=UserRole.AGENT,
         nullable=False,
     )
+    is_approved: Mapped[bool] = mapped_column(
+        default=False,
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

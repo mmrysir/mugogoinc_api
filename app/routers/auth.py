@@ -38,7 +38,13 @@ async def register(payload: RegisterIn, db: AsyncSession = Depends(get_db)) -> d
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
     hashed = security.hash_password(payload.password)
-    user = User(email=payload.email, name=payload.name, hashed_password=hashed, phone_number=payload.phone_number)
+    user = User(
+        email=payload.email,
+        name=payload.name,
+        hashed_password=hashed,
+        phone_number=payload.phone_number,
+        is_approved=False,  # Always starts unapproved
+    )
     db.add(user)
     await db.flush()
     return {"id": user.id, "email": user.email, "name": user.name, "phone_number": user.phone_number}
@@ -55,6 +61,13 @@ async def login(payload: LoginIn, db: AsyncSession = Depends(get_db)) -> Any:
     user = await db.scalar(q)
     if not user or not security.verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    # Block unapproved agents from getting a token
+    if not user.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="PENDING_APPROVAL",
+        )
 
     token = security.create_access_token({"sub": user.id, "role": user.role.value}, expires_delta=timedelta(hours=8))
     return {"access_token": token}
@@ -93,4 +106,10 @@ def require_role(*allowed: UserRole):
 
 @router.get("/auth/me")
 async def me(current_user: User = Depends(get_current_user)) -> dict:
-    return {"id": current_user.id, "email": current_user.email, "name": current_user.name, "role": current_user.role}
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "name": current_user.name,
+        "role": current_user.role,
+        "is_approved": current_user.is_approved,
+    }
