@@ -62,8 +62,12 @@ async def login(payload: LoginIn, db: AsyncSession = Depends(get_db)) -> Any:
     if not user or not security.verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    # Block unapproved agents from getting a token
-    if not user.is_approved:
+    # Auto-approve SUPER_ADMIN and MANAGER roles if needed, and only block unapproved AGENTs
+    if user.role in (UserRole.SUPER_ADMIN, UserRole.MANAGER):
+        if not user.is_approved:
+            user.is_approved = True
+            await db.flush()
+    elif not user.is_approved:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="PENDING_APPROVAL",

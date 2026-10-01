@@ -75,6 +75,8 @@ async def update_user_role(
         )
 
     user.role = payload.role
+    if payload.role in (UserRole.SUPER_ADMIN, UserRole.MANAGER):
+        user.is_approved = True
     await db.flush()
     return user
 
