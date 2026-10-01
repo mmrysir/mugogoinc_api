@@ -33,10 +33,31 @@ async def list_business_units(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> BusinessUnitListResponse:
     q = select(BusinessUnit)
-    if organization_id:
-        q = q.where(BusinessUnit.organization_id == organization_id)
+
+    if current_user.role == UserRole.SUPER_ADMIN:
+        # Super admins see all business units
+        if organization_id:
+            q = q.where(BusinessUnit.organization_id == organization_id)
+    elif current_user.role == UserRole.MANAGER:
+        # Managers see BUs from orgs they created or are assigned to
+        manager_org_ids = select(Organization.id).where(
+            (Organization.created_by_id == current_user.id)
+            | (Organization.assigned_agent_id == current_user.id)
+        )
+        q = q.where(BusinessUnit.organization_id.in_(manager_org_ids))
+        if organization_id:
+            q = q.where(BusinessUnit.organization_id == organization_id)
+    else:
+        # Agents only see BUs from their assigned organizations
+        agent_org_ids = select(Organization.id).where(
+            Organization.assigned_agent_id == current_user.id
+        )
+        q = q.where(BusinessUnit.organization_id.in_(agent_org_ids))
+        if organization_id:
+            q = q.where(BusinessUnit.organization_id == organization_id)
 
     count_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = count_result.scalar_one()

@@ -18,12 +18,15 @@ router = APIRouter(prefix="/users", tags=["Users"])
 @router.get("", response_model=list[UserResponse])
 async def list_users(
     role: Optional[UserRole] = Query(None),
+    approved_only: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_role(UserRole.SUPER_ADMIN, UserRole.MANAGER)),
 ) -> list[User]:
     q = select(User).order_by(User.created_at.desc())
     if role:
         q = q.where(User.role == role)
+    if approved_only:
+        q = q.where(User.is_approved == True)  # noqa: E712
     result = await db.execute(q)
     return list(result.scalars().all())
 

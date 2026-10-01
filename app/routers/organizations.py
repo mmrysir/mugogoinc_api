@@ -126,6 +126,40 @@ async def update_organization(
     return org
 
 
+@router.patch("/{org_id}/assign-agent", response_model=OrganizationResponse)
+async def assign_agent(
+    org_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Organization:
+    """Assign or unassign an approved agent to an organization."""
+    if current_user.role not in (UserRole.SUPER_ADMIN, UserRole.MANAGER):
+        raise HTTPException(status_code=403, detail="Insufficient privileges")
+
+    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    agent_id: Optional[str] = body.get("agent_id")  # None means unassign
+
+    if agent_id:
+        agent_result = await db.execute(
+            select(User).where(User.id == agent_id, User.role == UserRole.AGENT, User.is_approved == True)  # noqa: E712
+        )
+        agent = agent_result.scalar_one_or_none()
+        if not agent:
+            raise HTTPException(
+                status_code=404,
+                detail="Agent not found or not yet approved",
+            )
+
+    org.assigned_agent_id = agent_id
+    await db.flush()
+    return org
+
+
 @router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_organization(
     org_id: str,
