@@ -176,6 +176,40 @@ async def test_partial_abandoned_stored_in_abandoned_table():
     print(f"  ✅ PASS: Partial abandoned lead stored — abandoned_id={abandoned_id}")
 
 
+@pytest.mark.asyncio
+async def test_partial_submission_event_type_supported():
+    """
+    SCENARIO: Client SDK sends event_type = "partial_submission".
+    EXPECTED: Saved in abandoned_leads table and returns event_type = "partial_submission".
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/ingest/bu-express-001",
+            json={
+                "event_type": "partial_submission",
+                "email": "sdk_partial@example.com",
+                "phone_number": "07123",  # Partial unformatted phone
+                "full_name": "SDK Lead",
+            },
+            headers=_worker_headers(),
+        )
+
+    assert resp.status_code == 202, f"Expected 202, got {resp.status_code}: {resp.text}"
+    body = resp.json()
+    assert body["event_type"] == "partial_submission"
+    abandoned_id = body["lead_id"]
+
+    async with AsyncSessionLocal() as db:
+        abandoned = await db.scalar(
+            select(AbandonedLead).where(AbandonedLead.id == abandoned_id)
+        )
+        assert abandoned is not None
+        assert abandoned.email == "sdk_partial@example.com"
+        assert abandoned.phone_number == "0712" or abandoned.phone_number == "07123"
+
+
+
 # ── Test 3: Duplicate Detection (24h window) ──────────────────────────────────
 
 @pytest.mark.asyncio

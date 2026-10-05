@@ -81,6 +81,7 @@ class Lead(Base):
     dedupe_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     submission_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     is_returning: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_partial: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_activity_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

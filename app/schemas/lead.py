@@ -49,7 +49,7 @@ class LeadIngestRequest(BaseModel):
 
     @model_validator(mode="before")
     def validate_phone(cls, values: dict) -> dict:
-        if values.get("event_type") == "partial_abandoned":
+        if values.get("event_type") in ["partial_submission", "partial_abandoned"]:
             return values
 
         # Normalize and validate phone number to E.164
@@ -94,6 +94,8 @@ class LeadResponse(BaseModel):
     # Returning-lead tracking fields
     submission_count: int = 1
     is_returning: bool = False
+    is_partial: bool = False
+    is_blurred: bool = False
     last_activity_at: datetime
     created_at: datetime
 

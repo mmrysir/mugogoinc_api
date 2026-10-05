@@ -4,16 +4,27 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.routers.auth import get_current_user
-from app.models.user import User
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.lead import Lead, DeliveryStatus, SourceChannel
+from app.models.lead import DeliveryStatus, Lead, SourceChannel
+from app.models.user import User, UserRole
+from app.routers.auth import get_current_user
 from app.schemas.lead import LeadListResponse, LeadResponse
+from app.utils.privacy import mask_email, mask_name, mask_phone
 
 router = APIRouter(prefix="/leads", tags=["Leads"], dependencies=[Depends(get_current_user)])
+
+
+def _serialize_lead(lead: Lead, can_view_pii: bool) -> LeadResponse:
+    resp = LeadResponse.model_validate(lead)
+    if not can_view_pii:
+        resp.is_blurred = True
+        resp.full_name = mask_name(lead.full_name)
+        resp.phone_number = mask_phone(lead.phone_number)
+        resp.email = mask_email(lead.email)
+    return resp
 
 
 @router.get("", response_model=LeadListResponse)
@@ -27,6 +38,7 @@ async def list_leads(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> LeadListResponse:
     from sqlalchemy import func
     from app.models.business_unit import BusinessUnit
@@ -60,16 +72,30 @@ async def list_leads(
         q.order_by(Lead.last_activity_at.desc()).offset(skip).limit(limit)
     )
     items = result.scalars().all()
-    return LeadListResponse(total=total, items=list(items))
+
+    can_view_pii = (
+        current_user.role in [UserRole.SUPER_ADMIN, UserRole.MANAGER] or
+        (current_user.is_approved and not current_user.is_frozen)
+    )
+
+    lead_responses = [_serialize_lead(lead, can_view_pii) for lead in items]
+    return LeadListResponse(total=total, items=lead_responses)
 
 
 @router.get("/{lead_id}", response_model=LeadResponse)
 async def get_lead(
     lead_id: str,
     db: AsyncSession = Depends(get_db),
-) -> Lead:
+    current_user: User = Depends(get_current_user),
+) -> LeadResponse:
     result = await db.execute(select(Lead).where(Lead.id == lead_id))
     lead = result.scalar_one_or_none()
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    return lead
+
+    can_view_pii = (
+        current_user.role in [UserRole.SUPER_ADMIN, UserRole.MANAGER] or
+        (current_user.is_approved and not current_user.is_frozen)
+    )
+    return _serialize_lead(lead, can_view_pii)
+

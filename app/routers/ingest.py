@@ -98,7 +98,7 @@ async def ingest_lead(
     utm_medium = body.utm_medium or payload_meta.get("utm_medium")
     utm_campaign = body.utm_campaign or payload_meta.get("utm_campaign")
 
-    if body.event_type == "partial_abandoned":
+    if body.event_type in ["partial_submission", "partial_abandoned"]:
         abandoned = AbandonedLead(
             id=str(uuid.uuid4()),
             business_unit_id=business_unit_id,
@@ -116,7 +116,7 @@ async def ingest_lead(
             lead_id=abandoned.id,
             is_duplicate=False,
             message="Partial lead recorded.",
-            event_type="partial_abandoned",
+            event_type=body.event_type,
         )
 
     # ── 2. Deduplication & Rate Limiting ────────────────────────────────────
