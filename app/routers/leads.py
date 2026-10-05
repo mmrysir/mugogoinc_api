@@ -24,6 +24,9 @@ def _serialize_lead(lead: Lead, can_view_pii: bool) -> LeadResponse:
         resp.full_name = mask_name(lead.full_name)
         resp.phone_number = mask_phone(lead.phone_number)
         resp.email = mask_email(lead.email)
+        # Mask IP address — personal data under GDPR / data minimisation
+        if resp.ip_address:
+            resp.ip_address = "●●●.●●●.●●●.●●●"
     return resp
 
 

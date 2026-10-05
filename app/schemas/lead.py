@@ -89,6 +89,10 @@ class LeadResponse(BaseModel):
     utm_source: Optional[str] = None
     utm_medium: Optional[str] = None
     utm_campaign: Optional[str] = None
+    # Geo / Visitor Intelligence fields
+    ip_address: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
     user_agent: Optional[str] = None
     dedupe_hash: str
     # Returning-lead tracking fields
