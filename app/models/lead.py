@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, JSON, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -79,6 +79,14 @@ class Lead(Base):
     utm_campaign: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     dedupe_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    submission_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    is_returning: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_activity_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

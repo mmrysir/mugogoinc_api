@@ -1,0 +1,59 @@
+name: Deploy Mugogo API
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy Mugogo API to DigitalOcean via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -e
+
+            # ── Ensure PM2 and common binary paths are in PATH ─────────────
+            export PATH=$PATH:/usr/local/bin:/usr/bin:~/.nvm/versions/node/$(ls ~/.nvm/versions/node 2>/dev/null | tail -n 1)/bin
+
+            # ── Create app folder if it doesn't exist ─────────────────────────
+            mkdir -p /var/www/mugogoinc/mugogoinc_api
+            cd /var/www/mugogoinc/mugogoinc_api
+
+            # ── Pull latest code ─────────────────────────────────────────────
+            if [ ! -d ".git" ]; then
+              git clone https://github.com/mmrysir/mugogoinc_api.git .
+            else
+              git pull origin main
+            fi
+
+            # ── Write .env ───────────────────────────────────────────────────
+            cat > .env << 'EOF'
+            APP_ENV=production
+            APP_SECRET_KEY=${{ secrets.APP_SECRET_KEY }}
+            DATABASE_URL=postgresql+asyncpg://postgres:${{ secrets.DB_PASSWORD }}@127.0.0.1:5432/mugogo_db
+            EOF
+
+            # ── Setup virtual environment & install dependencies ─────────────
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+
+            # ── Run database migrations ──────────────────────────────────────
+            PYTHONPATH=. alembic upgrade head
+
+            # ── Start or restart under PM2 ───────────────────────────────────
+            PM2_PATH=$(which pm2 || echo "/usr/local/bin/pm2")
+
+            $PM2_PATH describe mugogo-api > /dev/null 2>&1 \
+              && $PM2_PATH restart mugogo-api --update-env \
+              || $PM2_PATH start "venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000" \
+                   --name "mugogo-api"
+
+            $PM2_PATH save

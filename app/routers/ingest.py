@@ -132,7 +132,7 @@ async def ingest_lead(
 
     if existing:
         logger.info(
-            "[INGEST] Duplicate detected — lead_id=%s phone=%s bu=%s",
+            "[INGEST] 24h spam guard hit — duplicate phone within window: lead_id=%s phone=%s bu=%s",
             existing.id,
             body.phone_number,
             business_unit_id,
@@ -141,6 +141,38 @@ async def ingest_lead(
             lead_id=existing.id,
             is_duplicate=True,
             message="Duplicate submission detected within 24-hour window. No action taken.",
+        )
+
+    # ── 2b. Perpetual Returning Lead Lookup (uses ix_leads_dedupe_hash) ───────
+    # Passes only when no match was found in the 24h window above.
+    # Finds any historical lead with the same phone+BU hash, regardless of age.
+    returning_stmt = (
+        select(Lead)
+        .where(Lead.dedupe_hash == dedupe_hash)
+        .order_by(Lead.created_at.desc())
+        .limit(1)
+    )
+    returning_result = await db.execute(returning_stmt)
+    returning_lead = returning_result.scalar_one_or_none()
+
+    if returning_lead:
+        # Re-engagement path: bump counters and surface to top of Lead Feed
+        returning_lead.submission_count += 1
+        returning_lead.is_returning = True
+        returning_lead.last_activity_at = datetime.now(timezone.utc)
+        await db.flush()
+        logger.info(
+            "[INGEST] Returning lead re-engaged — lead_id=%s phone=%s count=%d bu=%s",
+            returning_lead.id,
+            returning_lead.phone_number,
+            returning_lead.submission_count,
+            business_unit_id,
+        )
+        return IngestResponse(
+            lead_id=returning_lead.id,
+            is_duplicate=False,
+            message=f"Returning lead updated. Submission count: {returning_lead.submission_count}.",
+            event_type="returning_submission",
         )
 
     # ── 3. Persist Lead ───────────────────────────────────────────────────────
@@ -170,6 +202,9 @@ async def ingest_lead(
         utm_medium=utm_medium,
         utm_campaign=utm_campaign,
         dedupe_hash=dedupe_hash,
+        submission_count=1,
+        is_returning=False,
+        last_activity_at=datetime.now(timezone.utc),
         created_at=datetime.now(timezone.utc),
     )
     db.add(lead)

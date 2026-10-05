@@ -91,6 +91,10 @@ class LeadResponse(BaseModel):
     utm_campaign: Optional[str] = None
     user_agent: Optional[str] = None
     dedupe_hash: str
+    # Returning-lead tracking fields
+    submission_count: int = 1
+    is_returning: bool = False
+    last_activity_at: datetime
     created_at: datetime
 
 

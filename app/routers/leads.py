@@ -57,7 +57,7 @@ async def list_leads(
     total = count_result.scalar_one()
 
     result = await db.execute(
-        q.order_by(Lead.created_at.desc()).offset(skip).limit(limit)
+        q.order_by(Lead.last_activity_at.desc()).offset(skip).limit(limit)
     )
     items = result.scalars().all()
     return LeadListResponse(total=total, items=list(items))
