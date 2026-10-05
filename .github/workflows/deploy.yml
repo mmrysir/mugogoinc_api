@@ -28,8 +28,9 @@ jobs:
             cd /var/www/mugogoinc/mugogoinc_api
 
             echo "--> Pulling latest code from main"
-            git fetch origin main
-            git reset --hard origin/main
+            rm -f .git/refs/remotes/origin/main.lock .git/index.lock
+            git fetch --force origin main
+            git reset --hard FETCH_HEAD
 
             echo "--> Activating Python Virtual Environment and updating dependencies"
             if [ -d "venv" ]; then
