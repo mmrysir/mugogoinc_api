@@ -21,7 +21,7 @@ logger = logging.getLogger("mugogo")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: create tables. Shutdown: nothing required for SQLite."""
+    """Startup: create tables. Shutdown: cleanup."""
     logger.info("🚀 Mugogo Inc. Engine starting up — env=%s", settings.app_env)
     await create_all_tables()
     logger.info("✅ Database tables verified / created")

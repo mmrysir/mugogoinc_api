@@ -73,8 +73,6 @@ class Settings(BaseSettings):
         url = self.database_url
         if url.startswith("postgresql+asyncpg://"):
             return url.replace("postgresql+asyncpg://", "postgresql://")
-        elif url.startswith("sqlite+aiosqlite://"):
-            return url.replace("sqlite+aiosqlite://", "sqlite://")
         return url
 
 
