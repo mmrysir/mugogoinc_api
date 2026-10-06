@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from typing import Any, Dict, List, Optional
+from google.ads.googleads.errors import GoogleAdsException
+
+from app.services.google_ads import get_google_ads_client
+from app.core.config import settings
 
 logger = logging.getLogger("mugogo.keywords")
 
+LANGUAGE_ENGLISH = "languageConstants/1000"
 
 class KeywordPlannerService:
     """
@@ -23,29 +29,59 @@ class KeywordPlannerService:
         """
         logger.info("[KEYWORD_SERVICE] Fetching keyword metrics for seeds: %s", seed_keywords)
 
-        results = []
-        for kw in seed_keywords:
-            kw_clean = kw.strip()
-            if not kw_clean:
-                continue
+        if not settings.google_ads_developer_token:
+            logger.warning("[KEYWORD_SERVICE] Google Ads credentials not configured. Returning empty.")
+            return []
 
-            # Deterministic simulation of keyword metrics for dev/production readiness
-            base_vol = (hash(kw_clean) % 450) * 10 + 1200
-            comp_tiers = ["LOW", "MEDIUM", "HIGH"]
-            comp = comp_tiers[hash(kw_clean) % 3]
-            low_bid = round(1.20 + (hash(kw_clean) % 30) * 0.15, 2)
-            high_bid = round(low_bid + 2.50 + (hash(kw_clean) % 20) * 0.20, 2)
+        def _fetch():
+            client = get_google_ads_client()
+            keyword_plan_idea_service = client.get_service("KeywordPlanIdeaService")
 
-            results.append({
-                "keyword": kw_clean,
-                "monthly_search_volume": base_vol,
-                "competition": comp,
-                "low_top_of_page_bid_usd": low_bid,
-                "high_top_of_page_bid_usd": high_bid,
-                "opportunity_score": min(98, max(40, int(base_vol / 50))),
-            })
+            request = client.get_type("GenerateKeywordIdeasRequest")
+            request.customer_id = settings.google_ads_customer_id.replace("-", "")
+            request.language = LANGUAGE_ENGLISH
+            
+            # 2404 is Kenya. Can be overridden in frontend payload
+            request.geo_target_constants.append(f"geoTargetConstants/{location_id}")
+            request.keyword_seed.keywords.extend([k.strip() for k in seed_keywords if k.strip()])
+            request.keyword_plan_network = client.enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH
 
-        return results
+            try:
+                response = keyword_plan_idea_service.generate_keyword_ideas(request=request)
+                
+                results = []
+                for idea in response:
+                    metrics = idea.keyword_idea_metrics
+                    
+                    monthly_search_volume = getattr(metrics, "avg_monthly_searches", 0)
+                    competition = getattr(metrics.competition, "name", "UNKNOWN")
+                    
+                    low_bid_micros = getattr(metrics, "low_top_of_page_bid_micros", 0) or 0
+                    high_bid_micros = getattr(metrics, "high_top_of_page_bid_micros", 0) or 0
+
+                    low_bid = low_bid_micros / 1_000_000
+                    high_bid = high_bid_micros / 1_000_000
+                    
+                    vol = monthly_search_volume or 0
+
+                    results.append({
+                        "keyword": idea.text,
+                        "monthly_search_volume": vol,
+                        "competition": competition,
+                        "low_top_of_page_bid_usd": round(low_bid, 2),
+                        "high_top_of_page_bid_usd": round(high_bid, 2),
+                        "opportunity_score": min(98, max(40, int(vol / 50))),
+                    })
+                return results
+            except GoogleAdsException as ex:
+                logger.error(f"[KEYWORD_SERVICE] Google Ads API Exception: {ex}")
+                return []
+            except Exception as e:
+                logger.error(f"[KEYWORD_SERVICE] Error: {e}")
+                return []
+
+        # Run the synchronous Google Ads client call in a thread pool to avoid blocking async loop
+        return await asyncio.to_thread(_fetch)
 
 
 keyword_service = KeywordPlannerService()

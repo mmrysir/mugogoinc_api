@@ -42,6 +42,39 @@ jobs:
             pip install --upgrade pip
             pip install -r requirements.txt
 
+            echo "--> Injecting Google Ads GitHub Secrets into .env"
+            # Safely replace or append the secrets in the production .env file
+            
+            # Client ID
+            if [ -n "${{ secrets.GOOGLE_ADS_CLIENT_ID }}" ]; then
+              grep -q '^GOOGLE_ADS_CLIENT_ID=' .env && sed -i "s|^GOOGLE_ADS_CLIENT_ID=.*|GOOGLE_ADS_CLIENT_ID=${{ secrets.GOOGLE_ADS_CLIENT_ID }}|" .env || echo "GOOGLE_ADS_CLIENT_ID=${{ secrets.GOOGLE_ADS_CLIENT_ID }}" >> .env
+            fi
+            
+            # Client Secret
+            if [ -n "${{ secrets.GOOGLE_ADS_CLIENT_SECRET }}" ]; then
+              grep -q '^GOOGLE_ADS_CLIENT_SECRET=' .env && sed -i "s|^GOOGLE_ADS_CLIENT_SECRET=.*|GOOGLE_ADS_CLIENT_SECRET=${{ secrets.GOOGLE_ADS_CLIENT_SECRET }}|" .env || echo "GOOGLE_ADS_CLIENT_SECRET=${{ secrets.GOOGLE_ADS_CLIENT_SECRET }}" >> .env
+            fi
+            
+            # Refresh Token
+            if [ -n "${{ secrets.GOOGLE_ADS_REFRESH_TOKEN }}" ]; then
+              grep -q '^GOOGLE_ADS_REFRESH_TOKEN=' .env && sed -i "s|^GOOGLE_ADS_REFRESH_TOKEN=.*|GOOGLE_ADS_REFRESH_TOKEN=${{ secrets.GOOGLE_ADS_REFRESH_TOKEN }}|" .env || echo "GOOGLE_ADS_REFRESH_TOKEN=${{ secrets.GOOGLE_ADS_REFRESH_TOKEN }}" >> .env
+            fi
+            
+            # Developer Token
+            if [ -n "${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}" ]; then
+              grep -q '^GOOGLE_ADS_DEVELOPER_TOKEN=' .env && sed -i "s|^GOOGLE_ADS_DEVELOPER_TOKEN=.*|GOOGLE_ADS_DEVELOPER_TOKEN=${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}|" .env || echo "GOOGLE_ADS_DEVELOPER_TOKEN=${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}" >> .env
+            fi
+            
+            # Customer ID
+            if [ -n "${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}" ]; then
+              grep -q '^GOOGLE_ADS_CUSTOMER_ID=' .env && sed -i "s|^GOOGLE_ADS_CUSTOMER_ID=.*|GOOGLE_ADS_CUSTOMER_ID=${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}|" .env || echo "GOOGLE_ADS_CUSTOMER_ID=${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}" >> .env
+            fi
+            
+            # Login Customer ID (MCC) - Optional
+            if [ -n "${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}" ]; then
+              grep -q '^GOOGLE_ADS_LOGIN_CUSTOMER_ID=' .env && sed -i "s|^GOOGLE_ADS_LOGIN_CUSTOMER_ID=.*|GOOGLE_ADS_LOGIN_CUSTOMER_ID=${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}|" .env || echo "GOOGLE_ADS_LOGIN_CUSTOMER_ID=${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}" >> .env
+            fi
+
             echo "--> Running Alembic Database Migrations"
             # Automatically apply pending schema migrations to mugogo_db
             alembic upgrade head || (alembic stamp head && alembic upgrade head)

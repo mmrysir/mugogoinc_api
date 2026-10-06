@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     google_ads_client_secret: str = ""
     google_ads_refresh_token: str = ""
     google_ads_customer_id: str = ""
+    google_ads_login_customer_id: str | None = None
     google_ads_conversion_action_id: str = ""
     cpl_threshold_usd: float = 15.0
 

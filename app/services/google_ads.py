@@ -6,6 +6,19 @@ from app.core.config import settings
 
 logger = logging.getLogger("mugogo_api")
 
+def get_google_ads_client() -> GoogleAdsClient:
+    credentials = {
+        "developer_token": settings.google_ads_developer_token,
+        "client_id": settings.google_ads_client_id,
+        "client_secret": settings.google_ads_client_secret,
+        "refresh_token": settings.google_ads_refresh_token,
+        "use_proto_plus": True,
+    }
+    if settings.google_ads_login_customer_id:
+        credentials["login_customer_id"] = settings.google_ads_login_customer_id
+
+    return GoogleAdsClient.load_from_dict(credentials)
+
 def upload_offline_conversion(gclid: str, conversion_time: datetime = None, conversion_value: float = 1.0):
     if not gclid:
         logger.warning("Google Ads CAPI: Skipped upload due to missing GCLID")
@@ -15,16 +28,8 @@ def upload_offline_conversion(gclid: str, conversion_time: datetime = None, conv
         logger.info(f"Google Ads CAPI [STUB]: Captured GCLID {gclid} (Credentials not configured)")
         return True
 
-    credentials = {
-        "developer_token": settings.google_ads_developer_token,
-        "client_id": settings.google_ads_client_id,
-        "client_secret": settings.google_ads_client_secret,
-        "refresh_token": settings.google_ads_refresh_token,
-        "use_proto_plus": True,
-    }
-
     try:
-        client = GoogleAdsClient.load_from_dict(credentials)
+        client = get_google_ads_client()
         conversion_upload_service = client.get_service("ConversionUploadService")
         
         customer_id = settings.google_ads_customer_id.replace("-", "")
