@@ -53,8 +53,7 @@ class Settings(BaseSettings):
     google_ads_conversion_action_id: str = ""
     cpl_threshold_usd: float = 15.0
 
-    # ── CORS ─────────────────────────────────────────────────────────────────
-    cors_origins: str = "https://engine.mugogoinc.com,http://localhost:3000,http://localhost:3002"
+    cors_origins: str = "https://engine.mugogoinc.com,http://localhost:3000,http://localhost:3002,http://localhost:5173"
 
     @property
     def allowed_origins(self) -> List[str]:
