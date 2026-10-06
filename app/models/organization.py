@@ -65,6 +65,12 @@ class Organization(Base):
     assigned_agent: Mapped[Optional["User"]] = relationship(  # noqa: F821
         "User", foreign_keys=[assigned_agent_id], back_populates="assigned_organizations"
     )
+    agent_assignments: Mapped[list["AgentOrgAssignment"]] = relationship(  # noqa: F821
+        "AgentOrgAssignment", back_populates="organization", cascade="all, delete-orphan"
+    )
+    marketing_channels: Mapped[Optional["ClientMarketingChannel"]] = relationship(  # noqa: F821
+        "ClientMarketingChannel", back_populates="organization", cascade="all, delete-orphan", uselist=False
+    )
 
     def __repr__(self) -> str:
         return f"<Organization id={self.id!r} name={self.name!r} status={self.status}>"

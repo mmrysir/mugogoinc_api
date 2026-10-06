@@ -58,6 +58,11 @@ class User(Base):
         back_populates="assigned_agent",
         foreign_keys="[Organization.assigned_agent_id]",
     )
+    org_assignments: Mapped[list["AgentOrgAssignment"]] = relationship(  # noqa: F821
+        "AgentOrgAssignment",
+        back_populates="agent",
+        foreign_keys="[AgentOrgAssignment.agent_id]",
+    )
 
     def __repr__(self) -> str:
         return f"<User id={self.id!r} email={self.email!r} role={self.role}>"

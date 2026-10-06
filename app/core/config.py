@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     webhook_signing_secret: str = "insecure-signing-secret"
     cloudflare_worker_secret: str = "dummy-cloudflare-worker-key-2026"
 
+    # ── Token Encryption (Fernet AES-128-CBC) ────────────────────────────────
+    # Generate a production key with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    encryption_key: str = "bm90LWEtcmVhbC1rZXktcGxlYXNlLWNoYW5nZS1tZS0hISE="
+
     # ── Subdirectory Blog & Revalidation ─────────────────────────────────────
     blog_service_token: str = "mugogo-blog-internal-secret-token"
     nextjs_revalidate_url: str = "http://localhost:3000/api/revalidate"

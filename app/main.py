@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import create_all_tables
 from app.routers import organizations, business_units, leads, ingest, stats
-from app.routers import auth, users, blog, marketing
+from app.routers import auth, users, blog, marketing, onboarding, reporting
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +61,8 @@ app.include_router(stats.router, prefix=API_PREFIX)
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(marketing.router, prefix=API_PREFIX)
+app.include_router(onboarding.router, prefix=API_PREFIX)
+app.include_router(reporting.router, prefix=API_PREFIX)
 
 # Blog Routers (Mounted with public & internal paths)
 app.include_router(blog.public_router)

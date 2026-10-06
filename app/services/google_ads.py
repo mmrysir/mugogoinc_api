@@ -1,17 +1,28 @@
 import logging
 from datetime import datetime
+from typing import Optional
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.errors import GoogleAdsException
 from app.core.config import settings
 
 logger = logging.getLogger("mugogo_api")
 
-def get_google_ads_client() -> GoogleAdsClient:
+def get_google_ads_client(refresh_token: Optional[str] = None) -> GoogleAdsClient:
+    """
+    Build an authenticated GoogleAdsClient.
+
+    Args:
+        refresh_token: Per-org OAuth2 refresh token (decrypted from
+            ``ClientMarketingChannel.encrypted_oauth_tokens``). When supplied,
+            this token is used instead of the global MCC token in settings,
+            allowing the call to run under the client's own Google Ads account.
+            Falls back to ``settings.google_ads_refresh_token`` when ``None``.
+    """
     credentials = {
         "developer_token": settings.google_ads_developer_token,
         "client_id": settings.google_ads_client_id,
         "client_secret": settings.google_ads_client_secret,
-        "refresh_token": settings.google_ads_refresh_token,
+        "refresh_token": refresh_token or settings.google_ads_refresh_token,
         "use_proto_plus": True,
     }
     if settings.google_ads_login_customer_id:

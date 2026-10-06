@@ -4,11 +4,15 @@ import logging
 import asyncio
 from typing import Any, Dict, List, Optional
 from google.ads.googleads.errors import GoogleAdsException
+import time
 
 from app.services.google_ads import get_google_ads_client
 from app.core.config import settings
 
 logger = logging.getLogger("mugogo.keywords")
+
+_CACHE = {}
+CACHE_TTL = 3600
 
 LANGUAGE_ENGLISH = "languageConstants/1000"
 
@@ -22,28 +26,61 @@ class KeywordPlannerService:
     def __init__(self, developer_token: Optional[str] = None):
         self.developer_token = developer_token
 
-    async def fetch_keyword_ideas(self, seed_keywords: List[str], location_id: str = "2404") -> List[Dict[str, Any]]:
+    async def fetch_keyword_ideas(
+        self,
+        seed_keywords: List[str],
+        location_id: str = "2404",
+        language: str = "1000",
+        page_url: Optional[str] = None,
+        customer_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Fetch keyword metrics for given seed phrases.
         Returns search volume, competition level, low top-of-page bid, high top-of-page bid.
+
+        Args:
+            customer_id: Override the global Google Ads customer ID for this call.
+                         If not provided, falls back to ``settings.google_ads_customer_id``.
+                         Pass the per-org value from ``ClientMarketingChannel.google_ads_customer_id``.
         """
-        logger.info("[KEYWORD_SERVICE] Fetching keyword metrics for seeds: %s", seed_keywords)
+        logger.info(
+            "[KEYWORD_SERVICE] Fetching keyword metrics for seeds: %s, url: %s, customer_id: %s",
+            seed_keywords, page_url, customer_id,
+        )
 
         if not settings.google_ads_developer_token:
             logger.warning("[KEYWORD_SERVICE] Google Ads credentials not configured. Returning empty.")
             return []
+
+        # Resolve effective customer ID: per-request arg → global config fallback
+        effective_customer_id = (
+            customer_id or settings.google_ads_customer_id
+        ).replace("-", "")
+
+        cache_key = f"{','.join(seed_keywords)}_{location_id}_{language}_{page_url}_{effective_customer_id}"
+        if cache_key in _CACHE:
+            expire_time, data = _CACHE[cache_key]
+            if time.time() < expire_time:
+                logger.info("[KEYWORD_SERVICE] Returning cached keyword metrics")
+                return data
+            else:
+                del _CACHE[cache_key]
 
         def _fetch():
             client = get_google_ads_client()
             keyword_plan_idea_service = client.get_service("KeywordPlanIdeaService")
 
             request = client.get_type("GenerateKeywordIdeasRequest")
-            request.customer_id = settings.google_ads_customer_id.replace("-", "")
-            request.language = LANGUAGE_ENGLISH
+            request.customer_id = effective_customer_id
+            request.language = f"languageConstants/{language}"
             
-            # 2404 is Kenya. Can be overridden in frontend payload
             request.geo_target_constants.append(f"geoTargetConstants/{location_id}")
-            request.keyword_seed.keywords.extend([k.strip() for k in seed_keywords if k.strip()])
+            if seed_keywords:
+                request.keyword_seed.keywords.extend([k.strip() for k in seed_keywords if k.strip()])
+                
+            if page_url:
+                request.page_url.url = page_url
+                
             request.keyword_plan_network = client.enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH
 
             try:
@@ -81,7 +118,13 @@ class KeywordPlannerService:
                 return []
 
         # Run the synchronous Google Ads client call in a thread pool to avoid blocking async loop
-        return await asyncio.to_thread(_fetch)
+        results = await asyncio.to_thread(_fetch)
+        
+        # Cache results if successful
+        if results:
+            _CACHE[cache_key] = (time.time() + CACHE_TTL, results)
+            
+        return results
 
 
 keyword_service = KeywordPlannerService()

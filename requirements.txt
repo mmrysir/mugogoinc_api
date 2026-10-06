@@ -18,3 +18,4 @@ google-ads==33.0.0
 google-auth==2.59.1
 google-auth-httplib2==0.4.3
 google-auth-oauthlib==1.5.0
+beautifulsoup4==4.15.0

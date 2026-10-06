@@ -40,6 +40,8 @@ async def test_keyword_search_and_campaign_health():
         headers = {"Authorization": f"Bearer {token}"}
 
         # 1. Keyword search endpoint
+        # NOTE: The Keyword Planner API returns EXPANDED ideas (a superset of seeds),
+        # so we assert >= the number of seeds, not an exact match.
         kw_resp = await client.post(
             "/api/v1/marketing/keywords/search",
             json={"seed_keywords": ["3 day masai mara safari", "tax compliance kenya"]},
@@ -47,9 +49,17 @@ async def test_keyword_search_and_campaign_health():
         )
         assert kw_resp.status_code == 200, kw_resp.text
         kw_data = kw_resp.json()
-        assert kw_data["count"] == 2
-        assert len(kw_data["keywords"]) == 2
-        assert "monthly_search_volume" in kw_data["keywords"][0]
+        assert kw_data["count"] >= 2, f"Expected at least 2 keyword ideas, got {kw_data['count']}"
+        assert len(kw_data["keywords"]) >= 2
+        assert kw_data["count"] == len(kw_data["keywords"])
+        # Validate shape of each returned keyword idea
+        for kw in kw_data["keywords"]:
+            assert "keyword" in kw
+            assert "monthly_search_volume" in kw
+            assert "competition" in kw
+            assert "low_top_of_page_bid_usd" in kw
+            assert "high_top_of_page_bid_usd" in kw
+            assert "opportunity_score" in kw
 
         # 2. Campaign health monitor endpoint
         camp_resp = await client.post(
