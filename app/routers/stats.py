@@ -52,11 +52,11 @@ async def dashboard_stats(
 
     allowed_orgs_subq = allowed_orgs.subquery()
     allowed_bus_ids = select(BusinessUnit.id).where(
-        BusinessUnit.organization_id.in_(allowed_orgs_subq)
+        BusinessUnit.organization_id.in_(allowed_orgs_subq.select())
     )
     allowed_bus_ids_subq = allowed_bus_ids.subquery()
 
-    scoped_lead_filter = Lead.business_unit_id.in_(allowed_bus_ids_subq)
+    scoped_lead_filter = Lead.business_unit_id.in_(allowed_bus_ids_subq.select())
 
     # ── Total counts (scoped) ────────────────────────────────────────────────
     total_orgs = (
@@ -67,7 +67,7 @@ async def dashboard_stats(
     total_bus = (
         await db.execute(
             select(func.count(BusinessUnit.id)).where(
-                BusinessUnit.organization_id.in_(allowed_orgs_subq)
+                BusinessUnit.organization_id.in_(allowed_orgs_subq.select())
             )
         )
     ).scalar_one()

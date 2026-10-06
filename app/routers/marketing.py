@@ -19,10 +19,11 @@ router = APIRouter(prefix="/marketing", tags=["Marketing & Keyword Monitor"])
 
 
 class KeywordSearchRequest(BaseModel):
-    seed_keywords: List[str]
+    seed_keywords: List[str] = []
     location_id: Optional[str] = "2404"  # Kenya location ID default
     language: Optional[str] = "1000"     # English
     page_url: Optional[str] = None
+    business_unit_id: Optional[str] = None
 
 
 class CampaignMetricsInput(BaseModel):
@@ -38,15 +39,28 @@ class CampaignMetricsInput(BaseModel):
     summary="Fetch Google Ads Keyword Planner search volume & bid ranges",
     dependencies=[Depends(require_role(UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.AGENT))],
 )
-async def search_keywords(payload: KeywordSearchRequest) -> Any:
-    if not payload.seed_keywords and not payload.page_url:
-        raise HTTPException(status_code=400, detail="At least one seed keyword or a page URL is required.")
+async def search_keywords(payload: KeywordSearchRequest, db: AsyncSession = Depends(get_db)) -> Any:
+    effective_url = payload.page_url
+    effective_customer_id = None
+
+    if payload.business_unit_id:
+        from app.models.business_unit import BusinessUnit
+        bu = await db.scalar(select(BusinessUnit).where(BusinessUnit.id == payload.business_unit_id))
+        if bu:
+            if not effective_url and bu.primary_url:
+                effective_url = bu.primary_url
+            if bu.google_ads_customer_id:
+                effective_customer_id = bu.google_ads_customer_id
+
+    if not payload.seed_keywords and not effective_url:
+        raise HTTPException(status_code=400, detail="At least one seed keyword or a target page URL is required.")
 
     ideas = await keyword_service.fetch_keyword_ideas(
         payload.seed_keywords, 
         location_id=payload.location_id or "2404",
         language=payload.language or "1000",
-        page_url=payload.page_url
+        page_url=effective_url,
+        customer_id=effective_customer_id,
     )
     return {"keywords": ideas, "count": len(ideas)}
 

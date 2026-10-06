@@ -138,6 +138,31 @@ async def update_business_unit(
     return bu
 
 
+@router.put("/{bu_id}/profile", response_model=BusinessUnitResponse)
+async def update_business_unit_profile(
+    bu_id: str,
+    body: BusinessUnitUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BusinessUnit:
+    """Update onboarding profile metadata (primary_url, social_media_links, google_ads_customer_id, target_country, target_language)."""
+    if current_user.role not in (UserRole.SUPER_ADMIN, UserRole.MANAGER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient privileges to edit business unit profiles",
+        )
+    result = await db.execute(select(BusinessUnit).where(BusinessUnit.id == bu_id))
+    bu = result.scalar_one_or_none()
+    if not bu:
+        raise HTTPException(status_code=404, detail="Business Unit not found")
+
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(bu, field, value)
+
+    await db.flush()
+    return bu
+
+
 @router.delete("/{bu_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_business_unit(
     bu_id: str,

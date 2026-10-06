@@ -39,6 +39,11 @@ class BusinessUnit(Base):
     webhook_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     owner_whatsapp_number: Mapped[str] = mapped_column(String(20), nullable=False)
     owner_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    primary_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    social_media_links: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    google_ads_customer_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    target_country: Mapped[Optional[str]] = mapped_column(String(10), default="2404", nullable=True)
+    target_language: Mapped[Optional[str]] = mapped_column(String(10), default="1000", nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

@@ -25,6 +25,11 @@ class BusinessUnitUpdate(BaseModel):
     webhook_url: Optional[str] = Field(None, max_length=512)
     owner_whatsapp_number: Optional[str] = Field(None, min_length=10, max_length=20)
     owner_email: Optional[str] = Field(None, max_length=255)
+    primary_url: Optional[str] = Field(None, max_length=512)
+    social_media_links: Optional[str] = Field(None, max_length=1024)
+    google_ads_customer_id: Optional[str] = Field(None, max_length=50)
+    target_country: Optional[str] = Field(None, max_length=10)
+    target_language: Optional[str] = Field(None, max_length=10)
 
 
 # ── Response Schemas ───────────────────────────────────────────────────────────
@@ -39,6 +44,11 @@ class BusinessUnitResponse(BaseModel):
     webhook_url: Optional[str]
     owner_whatsapp_number: str
     owner_email: str
+    primary_url: Optional[str] = None
+    social_media_links: Optional[str] = None
+    google_ads_customer_id: Optional[str] = None
+    target_country: Optional[str] = "2404"
+    target_language: Optional[str] = "1000"
     created_at: datetime
 
 
