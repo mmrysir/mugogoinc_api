@@ -19,21 +19,14 @@ class Base(DeclarativeBase):
     pass
 
 
-is_sqlite = "sqlite" in settings.database_url
-
 engine_kwargs = {
     "echo": settings.app_env == "development",
     "future": True,
+    "pool_size": 20,
+    "max_overflow": 10,
+    "pool_pre_ping": True,
+    "pool_recycle": 1800,
 }
-
-if is_sqlite:
-    engine_kwargs["connect_args"] = {"check_same_thread": False}
-else:
-    # PostgreSQL Connection Pooling for high concurrency
-    engine_kwargs["pool_size"] = 20
-    engine_kwargs["max_overflow"] = 10
-    engine_kwargs["pool_pre_ping"] = True
-    engine_kwargs["pool_recycle"] = 1800
 
 engine: AsyncEngine = create_async_engine(
     settings.database_url,

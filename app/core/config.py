@@ -16,8 +16,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_secret_key: str = "insecure-default-key"
 
-    # ── Database ─────────────────────────────────────────────────────────────
-    database_url: str = "sqlite+aiosqlite:///./mugogo_engine.db"
+    database_url: str = "postgresql+asyncpg://mugogo_user:YOUR_PASSWORD@localhost:5432/mugogo_db"
 
     # ── WhatsApp Cloud API ───────────────────────────────────────────────────
     wa_phone_number_id: str = ""

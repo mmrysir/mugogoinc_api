@@ -75,11 +75,15 @@ class KeywordPlannerService:
             request.language = f"languageConstants/{language}"
             
             request.geo_target_constants.append(f"geoTargetConstants/{location_id}")
-            if seed_keywords:
-                request.keyword_seed.keywords.extend([k.strip() for k in seed_keywords if k.strip()])
-                
-            if page_url:
-                request.page_url.url = page_url
+            valid_keywords = [k.strip() for k in seed_keywords if k.strip()] if seed_keywords else []
+
+            if valid_keywords and page_url:
+                request.keyword_and_url_seed.url = page_url
+                request.keyword_and_url_seed.keywords.extend(valid_keywords)
+            elif valid_keywords:
+                request.keyword_seed.keywords.extend(valid_keywords)
+            elif page_url:
+                request.url_seed.url = page_url
                 
             request.keyword_plan_network = client.enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH
 
