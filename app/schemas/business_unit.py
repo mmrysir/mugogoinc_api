@@ -28,6 +28,7 @@ class BusinessUnitUpdate(BaseModel):
     primary_url: Optional[str] = Field(None, max_length=512)
     social_media_links: Optional[str] = Field(None, max_length=1024)
     google_ads_customer_id: Optional[str] = Field(None, max_length=50)
+    google_search_console_site: Optional[str] = Field(None, max_length=512)
     target_country: Optional[str] = Field(None, max_length=10)
     target_language: Optional[str] = Field(None, max_length=10)
 
@@ -47,6 +48,7 @@ class BusinessUnitResponse(BaseModel):
     primary_url: Optional[str] = None
     social_media_links: Optional[str] = None
     google_ads_customer_id: Optional[str] = None
+    google_search_console_site: Optional[str] = None
     target_country: Optional[str] = "2404"
     target_language: Optional[str] = "1000"
     created_at: datetime

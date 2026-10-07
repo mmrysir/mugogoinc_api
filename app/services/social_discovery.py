@@ -1,44 +1,45 @@
-import httpx
+"""
+social_discovery.py — DEPRECATED
+
+The Google SERP DOM scraping approach (BeautifulSoup + google.com search URLs)
+has been removed for the following reasons:
+
+1. Google actively blocks and rate-limits automated SERP requests.
+2. Parsing Google's HTML DOM is brittle and breaks on every layout change.
+3. Scraping google.com violates Google's Terms of Service (Section 5.3).
+
+Replacement strategy (D3 decision, 2026-10-07):
+  Social media links are stored directly in `BusinessUnit.social_media_links`
+  via the Edit Business Profile modal in the UI.
+
+  Administrators enter official profile handles during onboarding and can
+  update them at any time via PUT /api/v1/business-units/{id}/profile.
+
+This file is intentionally kept as a stub so existing imports in
+`onboarding.py` do not cause a hard crash before that file is updated.
+"""
+
 import logging
-import urllib.parse
-from bs4 import BeautifulSoup
 
 logger = logging.getLogger("mugogo.social_discovery")
 
+
 async def discover_social_presence(brand_name: str, niche: str) -> dict:
     """
-    Leverages Google's index to discover a client's or competitor's public 
-    social media presence (Instagram, TikTok, X, Facebook) without hitting anti-bot walls.
+    DEPRECATED — returns an empty result instead of scraping Google SERPs.
+
+    Social links are now entered manually via the Business Unit profile form
+    and stored in BusinessUnit.social_media_links.
     """
-    platforms = ["instagram.com", "tiktok.com", "twitter.com", "facebook.com", "youtube.com"]
-    discovered_links = {}
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-
-    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-        for platform in platforms:
-            query = f"site:{platform} {brand_name} {niche}"
-            search_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}"
-            
-            try:
-                response = await client.get(search_url, headers=headers)
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, "html.parser")
-                    # Extract the first valid organic search result link for that platform
-                    for a in soup.find_all("a", href=True):
-                        href = a["href"]
-                        if platform in href and "/url?q=" in href:
-                            # Clean Google's redirect URL format
-                            clean_url = href.split("/url?q=")[1].split("&sa=")[0]
-                            discovered_links[platform] = urllib.parse.unquote(clean_url)
-                            break
-            except Exception as e:
-                logger.warning(f"Failed to discover social profile for {platform}: {e}")
-
+    logger.info(
+        "[SOCIAL_DISCOVERY] Skipped — social links are managed via the BU "
+        "profile form (brand_name=%s). No scraping performed.",
+        brand_name,
+    )
     return {
         "brand_name": brand_name,
         "niche": niche,
-        "discovered_socials": discovered_links
+        "discovered_socials": {},
+        "note": "Automatic social discovery is disabled. "
+                "Update social links via the Business Unit profile.",
     }

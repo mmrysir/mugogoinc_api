@@ -71,24 +71,16 @@ async def analyze_entity_endpoint(
     stmt = select(ClientMarketingChannel).where(ClientMarketingChannel.org_id == payload.org_id)
     channel_record = (await db.execute(stmt)).scalar_one_or_none()
     
-    discovered_socials = result.get("social_insights", {}).get("discovered_socials", {})
-    
     if channel_record:
         channel_record.website_url = payload.website_url
         props = channel_record.gsc_platform_properties or {}
         if payload.customer_id:
             props["google_ads_customer_id"] = payload.customer_id
-        # Merge discovered socials
-        for platform, url in discovered_socials.items():
-            props[platform] = url
         channel_record.gsc_platform_properties = props
     else:
         props = {}
         if payload.customer_id:
             props["google_ads_customer_id"] = payload.customer_id
-        # Merge discovered socials
-        for platform, url in discovered_socials.items():
-            props[platform] = url
             
         channel_record = ClientMarketingChannel(
             org_id=payload.org_id,
