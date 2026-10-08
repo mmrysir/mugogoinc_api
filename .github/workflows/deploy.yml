@@ -4,6 +4,10 @@ on:
   push:
     branches: [ main ]
 
+concurrency:
+  group: production-api-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -26,6 +30,11 @@ jobs:
 
             echo "--> Navigating to API directory"
             cd /var/www/mugogoinc/mugogoinc_api
+
+            if [ ! -f .env ]; then
+              echo "ERROR: Production .env is missing; refusing to deploy without its configuration."
+              exit 1
+            fi
 
             echo "--> Pulling latest code from main"
             rm -f .git/refs/remotes/origin/main.lock .git/index.lock
@@ -76,10 +85,8 @@ jobs:
             fi
 
             echo "--> Running Alembic Database Migrations"
-            # Automatically apply pending schema migrations to mugogo_db
-            alembic upgrade head || (alembic stamp head && alembic upgrade head)
+            alembic upgrade head
 
-            echo "--> Restarting FastAPI application on Port 8001 via PM2"
-            pm2 delete mugogo-api 2>/dev/null || true
-            pm2 start "uvicorn app.main:app --host 127.0.0.1 --port 8001" --name "mugogo-api"
+            echo "--> Restarting FastAPI application via PM2 ecosystem config"
+            pm2 startOrReload ecosystem.config.js --update-env
             pm2 save

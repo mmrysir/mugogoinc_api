@@ -4,6 +4,10 @@ on:
   push:
     branches: [ main ]
 
+concurrency:
+  group: production-api-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -25,19 +29,17 @@ jobs:
             mkdir -p /var/www/mugogoinc/mugogoinc_api
             cd /var/www/mugogoinc/mugogoinc_api
 
+            if [ ! -f .env ]; then
+              echo "ERROR: Production .env is missing; refusing to deploy without its configuration."
+              exit 1
+            fi
+
             # ── Pull latest code ─────────────────────────────────────────────
             if [ ! -d ".git" ]; then
               git clone https://github.com/mmrysir/mugogoinc_api.git .
             else
               git pull origin main
             fi
-
-            # ── Write .env ───────────────────────────────────────────────────
-            cat > .env << 'EOF'
-            APP_ENV=production
-            APP_SECRET_KEY=${{ secrets.APP_SECRET_KEY }}
-            DATABASE_URL=postgresql+asyncpg://postgres:${{ secrets.DB_PASSWORD }}@127.0.0.1:5432/mugogo_db
-            EOF
 
             # ── Setup virtual environment & install dependencies ─────────────
             python3 -m venv venv
@@ -51,9 +53,5 @@ jobs:
             # ── Start or restart under PM2 ───────────────────────────────────
             PM2_PATH=$(which pm2 || echo "/usr/local/bin/pm2")
 
-            $PM2_PATH describe mugogo-api > /dev/null 2>&1 \
-              && $PM2_PATH restart mugogo-api --update-env \
-              || $PM2_PATH start "venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000" \
-                   --name "mugogo-api"
-
+            $PM2_PATH startOrReload ecosystem.config.js --update-env
             $PM2_PATH save

@@ -57,7 +57,14 @@ class Settings(BaseSettings):
 
     @property
     def allowed_origins(self) -> List[str]:
-        return [o.strip() for o in self.cors_origins.split(",")]
+        origins = [
+            origin.strip()
+            for origin in self.cors_origins.split(",")
+            if origin.strip()
+        ]
+        if not origins:
+            raise ValueError("CORS_ORIGINS must contain at least one allowed origin")
+        return origins
 
     @property
     def wa_api_url(self) -> str:
@@ -76,4 +83,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
