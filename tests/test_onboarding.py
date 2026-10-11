@@ -92,12 +92,17 @@ MOCK_SCRAPE_SUCCESS = {
     "title": "Example Safari — Best Safaris in Kenya",
     "meta_description": "Book your dream safari today.",
     "headings": ["Kenya Safaris", "Masai Mara Tours", "Budget Packages"],
+    "discovered_socials": {
+        "instagram.com": "https://www.instagram.com/examplesafari/",
+        "youtube.com": "https://www.youtube.com/@examplesafari",
+    },
 }
 
 MOCK_SCRAPE_FAIL = {
     "success": False,
     "url": "https://unreachable.co.ke",
     "error": "Connection timeout",
+    "discovered_socials": {},
 }
 
 MOCK_KEYWORDS = [
@@ -110,15 +115,6 @@ MOCK_KEYWORDS = [
         "opportunity_score": 72,
     }
 ]
-
-MOCK_SOCIAL = {
-    "brand_name": "Example Safari — Best Safaris in Kenya",
-    "niche": "https://example.co.ke",
-    "discovered_socials": {
-        "instagram.com": "https://www.instagram.com/examplesafari/",
-        "youtube.com": "https://www.youtube.com/@examplesafari",
-    },
-}
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -136,7 +132,6 @@ async def test_onboarding_full_analysis_as_admin():
     with (
         patch("app.services.onboarding.scrape_client_website", new=AsyncMock(return_value=MOCK_SCRAPE_SUCCESS)),
         patch("app.services.onboarding.keyword_service.fetch_keyword_ideas", new=AsyncMock(return_value=MOCK_KEYWORDS)),
-        patch("app.services.onboarding.discover_social_presence", new=AsyncMock(return_value=MOCK_SOCIAL)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
@@ -236,7 +231,6 @@ async def test_onboarding_approved_agent_with_assignment_allowed():
     with (
         patch("app.services.onboarding.scrape_client_website", new=AsyncMock(return_value=MOCK_SCRAPE_SUCCESS)),
         patch("app.services.onboarding.keyword_service.fetch_keyword_ideas", new=AsyncMock(return_value=MOCK_KEYWORDS)),
-        patch("app.services.onboarding.discover_social_presence", new=AsyncMock(return_value=MOCK_SOCIAL)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
@@ -261,9 +255,6 @@ async def test_onboarding_fallback_seed_when_scrape_fails():
     with (
         patch("app.services.onboarding.scrape_client_website", new=AsyncMock(return_value=MOCK_SCRAPE_FAIL)),
         patch("app.services.onboarding.keyword_service.fetch_keyword_ideas", new=AsyncMock(return_value=[])),
-        patch("app.services.onboarding.discover_social_presence", new=AsyncMock(return_value={
-            "brand_name": "unreachable.co.ke", "niche": "", "discovered_socials": {}
-        })),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
@@ -293,7 +284,6 @@ async def test_onboarding_updates_existing_channel_record():
     with (
         patch("app.services.onboarding.scrape_client_website", new=AsyncMock(return_value=MOCK_SCRAPE_SUCCESS)),
         patch("app.services.onboarding.keyword_service.fetch_keyword_ideas", new=AsyncMock(return_value=MOCK_KEYWORDS)),
-        patch("app.services.onboarding.discover_social_presence", new=AsyncMock(return_value=MOCK_SOCIAL)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             # First call — creates record
@@ -348,7 +338,6 @@ async def test_onboarding_setup_full_tenant():
     with (
         patch("app.services.onboarding.scrape_client_website", new=AsyncMock(return_value=MOCK_SCRAPE_SUCCESS)),
         patch("app.services.onboarding.keyword_service.fetch_keyword_ideas", new=AsyncMock(return_value=MOCK_KEYWORDS)),
-        patch("app.services.onboarding.discover_social_presence", new=AsyncMock(return_value=MOCK_SOCIAL)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
