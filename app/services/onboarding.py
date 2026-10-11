@@ -72,4 +72,9 @@ async def analyze_and_seed_entity(
         "seed_keywords_used": seeds,
         "keyword_opportunities_count": len(keyword_data),
         "top_keywords": keyword_data[:10],
+        "social_insights": {
+            "brand_name": scrape_result.get("title", ""),
+            "niche": scrape_result.get("url", ""),
+            "discovered_socials": scrape_result.get("discovered_socials", {}),
+        },
     }

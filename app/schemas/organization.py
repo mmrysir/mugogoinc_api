@@ -12,12 +12,14 @@ from app.models.organization import OrgStatus
 
 class OrganizationCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=255)
+    slug: Optional[str] = Field(None, max_length=255)
     status: OrgStatus = OrgStatus.ONBOARDING
     assigned_agent_id: Optional[str] = Field(None, max_length=128)
 
 
 class OrganizationUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=255)
+    slug: Optional[str] = Field(None, max_length=255)
     status: Optional[OrgStatus] = None
     assigned_agent_id: Optional[str] = Field(None, max_length=128)
 
@@ -29,6 +31,7 @@ class OrganizationResponse(BaseModel):
 
     id: str
     name: str
+    slug: str
     status: OrgStatus
     assigned_agent_id: Optional[str]
     created_at: datetime

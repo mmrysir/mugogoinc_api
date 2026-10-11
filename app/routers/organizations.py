@@ -74,9 +74,19 @@ async def create_organization(
             detail="Insufficient privileges to create organizations",
         )
 
+    from app.schemas.post import slugify
+
+    target_slug = (body.slug or slugify(body.name)).strip()
+    if not target_slug:
+        target_slug = f"org-{str(uuid.uuid4())[:8]}"
+    existing = await db.scalar(select(Organization).where(Organization.slug == target_slug))
+    if existing:
+        target_slug = f"{target_slug}-{str(uuid.uuid4())[:6]}"
+
     org = Organization(
         id=str(uuid.uuid4()),
         name=body.name,
+        slug=target_slug,
         status=body.status,
         assigned_agent_id=body.assigned_agent_id,
         created_by_id=current_user.id,

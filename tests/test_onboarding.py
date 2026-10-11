@@ -22,6 +22,7 @@ from app.core.database import Base, engine, AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
 from app.models.user import User, UserRole
 from app.models.organization import Organization
+from app.models.business_unit import BusinessUnit
 from app.models.tenant_channels import ClientMarketingChannel, AgentOrgAssignment
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -323,3 +324,120 @@ async def test_onboarding_updates_existing_channel_record():
             select(ClientMarketingChannel).where(ClientMarketingChannel.org_id == "org-onboard-1")
         )
         assert channel.website_url == "https://updated-example.co.ke"
+
+
+@pytest.mark.asyncio
+async def test_onboarding_setup_full_tenant():
+    """
+    Manager or Admin can call POST /api/v1/onboarding/setup to atomically create
+    Organization + BusinessUnit + ClientMarketingChannel + run initial analysis.
+    """
+    token = create_access_token({"sub": "admin-onboard-1"})
+    headers = {"Authorization": f"Bearer {token}"}
+
+    payload = {
+        "org_name": "Beach Holiday Tours",
+        "org_slug": "beach-holiday-tours",
+        "website_url": "https://beachholidaytours.com",
+        "bu_name": "Beach Holiday Tours - Diani",
+        "owner_whatsapp_number": "+254712345678",
+        "owner_email": "director@beachholidaytours.com",
+        "google_ads_customer_id": "456-789-0123",
+    }
+
+    with (
+        patch("app.services.onboarding.scrape_client_website", new=AsyncMock(return_value=MOCK_SCRAPE_SUCCESS)),
+        patch("app.services.onboarding.keyword_service.fetch_keyword_ideas", new=AsyncMock(return_value=MOCK_KEYWORDS)),
+        patch("app.services.onboarding.discover_social_presence", new=AsyncMock(return_value=MOCK_SOCIAL)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/onboarding/setup",
+                json=payload,
+                headers=headers,
+            )
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["status"] == "success"
+    org_id = data["org_id"]
+    bu_id = data["bu_id"]
+    assert data["org_slug"] == "beach-holiday-tours"
+
+    # Verify DB records
+    async with AsyncSessionLocal() as db:
+        # Organization created
+        org = await db.scalar(select(Organization).where(Organization.id == org_id))
+        assert org is not None
+        assert org.name == "Beach Holiday Tours"
+        assert org.slug == "beach-holiday-tours"
+
+        # BusinessUnit created
+        bu = await db.scalar(select(BusinessUnit).where(BusinessUnit.id == bu_id))
+        assert bu is not None
+        assert bu.organization_id == org_id
+        assert bu.name == "Beach Holiday Tours - Diani"
+        assert bu.owner_whatsapp_number == "+254712345678"
+        assert bu.owner_email == "director@beachholidaytours.com"
+        assert bu.primary_url == "https://beachholidaytours.com"
+        assert bu.google_ads_customer_id == "456-789-0123"
+        assert bu.google_search_console_site == "sc-domain:beachholidaytours.com"
+
+        # Marketing Channel created
+        channel = await db.scalar(select(ClientMarketingChannel).where(ClientMarketingChannel.org_id == org_id))
+        assert channel is not None
+        assert channel.website_url == "https://beachholidaytours.com"
+        assert channel.gsc_domain_property == "sc-domain:beachholidaytours.com"
+
+
+@pytest.mark.asyncio
+async def test_onboarding_setup_duplicate_slug_rejected():
+    """
+    Submitting an onboarding setup with an existing slug must return 409 Conflict.
+    """
+    token = create_access_token({"sub": "manager-onboard-1"})
+    headers = {"Authorization": f"Bearer {token}"}
+
+    payload = {
+        "org_name": "Beach Holiday Tours 2",
+        "org_slug": "unique-safari-slug",
+        "website_url": "https://unique-safari.com",
+        "owner_whatsapp_number": "+254700000000",
+        "owner_email": "owner@safari.com",
+    }
+
+    with (
+        patch("app.services.onboarding.scrape_client_website", new=AsyncMock(return_value=MOCK_SCRAPE_SUCCESS)),
+        patch("app.services.onboarding.keyword_service.fetch_keyword_ideas", new=AsyncMock(return_value=[])),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp1 = await client.post("/api/v1/onboarding/setup", json=payload, headers=headers)
+            assert resp1.status_code == 201
+
+            # Duplicate call with same slug
+            resp2 = await client.post("/api/v1/onboarding/setup", json=payload, headers=headers)
+            assert resp2.status_code == 409
+            assert "already taken" in resp2.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_onboarding_setup_agent_forbidden():
+    """
+    An agent calling POST /api/v1/onboarding/setup must receive 403 Forbidden.
+    """
+    token = create_access_token({"sub": "agent-onboard-approved"})
+    headers = {"Authorization": f"Bearer {token}"}
+
+    payload = {
+        "org_name": "Unauthorized Org",
+        "website_url": "https://unauth.com",
+        "owner_whatsapp_number": "+254711111111",
+        "owner_email": "agent@unauth.com",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/v1/onboarding/setup", json=payload, headers=headers)
+
+    assert resp.status_code == 403
+    assert "managers and super admins" in resp.json()["detail"].lower()
+

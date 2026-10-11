@@ -31,6 +31,13 @@ class Organization(Base):
         default=lambda: str(uuid.uuid4()),
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(
+        String(255),
+        unique=True,
+        index=True,
+        nullable=False,
+        default=lambda: f"org-{str(uuid.uuid4())[:8]}",
+    )
     api_key: Mapped[str] = mapped_column(
         String(255),
         unique=True,

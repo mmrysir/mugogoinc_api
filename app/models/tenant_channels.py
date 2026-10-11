@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 import uuid
+from typing import Optional
 from sqlalchemy import String, ForeignKey, DateTime, Text, JSON, Boolean, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -11,7 +12,7 @@ class AgentOrgAssignment(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     agent_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
-    assigned_by_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    assigned_by_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
@@ -32,15 +33,15 @@ class ClientMarketingChannel(Base):
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     
     # Core Metadata & Financial Thresholds
-    website_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    gsc_domain_property: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    cpl_threshold_usd: Mapped[float | None] = mapped_column(nullable=True)
-    monthly_ad_budget_usd: Mapped[float | None] = mapped_column(nullable=True)
-    alert_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    website_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    gsc_domain_property: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    cpl_threshold_usd: Mapped[Optional[float]] = mapped_column(nullable=True)
+    monthly_ad_budget_usd: Mapped[Optional[float]] = mapped_column(nullable=True)
+    alert_phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     
     # Unified JSON Storage for All Platforms & Encrypted Tokens
-    encrypted_oauth_tokens: Mapped[str | None] = mapped_column(Text, nullable=True) # Fernet encrypted JSON containing credentials for google_ads, meta, etc.
-    gsc_platform_properties: Mapped[dict | None] = mapped_column(JSON, nullable=True) # e.g. {"instagram": "@handle", "tiktok": "@handle"}
+    encrypted_oauth_tokens: Mapped[Optional[str]] = mapped_column(Text, nullable=True) # Fernet encrypted JSON containing credentials for google_ads, meta, etc.
+    gsc_platform_properties: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True) # e.g. {"instagram": "@handle", "tiktok": "@handle"}
     
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
