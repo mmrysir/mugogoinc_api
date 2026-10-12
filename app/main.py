@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import create_all_tables
@@ -29,6 +29,7 @@ async def lifespan(app: FastAPI):
     logger.info("👋 Mugogo Inc. Engine shutting down")
 
 
+# 
 app = FastAPI(
     title="Mugogo Inc. Lead Engine & Automated Growth OS",
     description=(
@@ -49,10 +50,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ── Routers ───────────────────────────────────────────────────────────────────
+# 
+# # ── Routers ───────────────────────────────────────────────────────────────────
 API_PREFIX = "/api/v1"
-
+# 
 app.include_router(organizations.router, prefix=API_PREFIX)
 app.include_router(business_units.router, prefix=API_PREFIX)
 app.include_router(leads.router, prefix=API_PREFIX)
@@ -63,16 +64,16 @@ app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(marketing.router, prefix=API_PREFIX)
 app.include_router(onboarding.router, prefix=API_PREFIX)
 app.include_router(reporting.router, prefix=API_PREFIX)
-
-# Blog Routers (Mounted with public & internal paths)
+# 
+# # Blog Routers (Mounted with public & internal paths)
 app.include_router(blog.public_router)
 app.include_router(blog.internal_router, prefix=API_PREFIX)
 app.include_router(blog.internal_router, prefix="/api")
 app.include_router(public_blogs.router, prefix=API_PREFIX)
 app.include_router(public_blogs.router)
-
-
-
+# 
+# 
+# 
 @app.get("/", tags=["Health"])
 async def health() -> dict:
     return {
