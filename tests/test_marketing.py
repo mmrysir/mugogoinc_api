@@ -76,6 +76,23 @@ async def test_keyword_search_and_campaign_health():
         for kw in kw_neg_data["keywords"]:
             assert "safari" not in kw["keyword"].lower()
 
+        # 2b. Multi-region and multi-language keyword search
+        kw_multi_resp = await client.post(
+            "/api/v1/marketing/keywords/search",
+            json={
+                "seed_keywords": ["3 day masai mara safari", "tax compliance kenya"],
+                "location_names": ["Kenya", "Uganda", "Tanzania"],
+                "language_names": ["English", "Swahili"],
+            },
+            headers=headers,
+        )
+        assert kw_multi_resp.status_code == 200, kw_multi_resp.text
+        kw_multi_data = kw_multi_resp.json()
+        assert kw_multi_data["count"] >= 2
+        for kw in kw_multi_data["keywords"]:
+            assert "keyword" in kw
+            assert "monthly_search_volume" in kw
+
         # 3. Scrape preview endpoint
         from unittest.mock import patch
         mock_scrape_data = {

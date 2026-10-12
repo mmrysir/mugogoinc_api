@@ -73,15 +73,73 @@ def resolve_language_id(language_name: Optional[str], language_id: Optional[str]
     return "1000"  # Default: English
 
 
+def resolve_location_ids(
+    location_names: Optional[List[str]] = None,
+    location_name: Optional[str] = None,
+    location_ids: Optional[List[str]] = None,
+    location_id: Optional[str] = None,
+) -> List[str]:
+    """Resolve human-readable location names and/or IDs into a list of Google Ads geo-target IDs."""
+    results: List[str] = []
+    if location_names:
+        for name in location_names:
+            if name and name in LOCATION_MAP:
+                loc = LOCATION_MAP[name]
+                if loc not in results:
+                    results.append(loc)
+    if location_name and location_name in LOCATION_MAP:
+        loc = LOCATION_MAP[location_name]
+        if loc not in results:
+            results.append(loc)
+    if location_ids:
+        for lid in location_ids:
+            if lid and str(lid) not in results:
+                results.append(str(lid))
+    if location_id and str(location_id) not in results:
+        results.append(str(location_id))
+    return results or ["2404"]  # Default: Kenya
+
+
+def resolve_language_ids(
+    language_names: Optional[List[str]] = None,
+    language_name: Optional[str] = None,
+    language_ids: Optional[List[str]] = None,
+    language_id: Optional[str] = None,
+) -> List[str]:
+    """Resolve human-readable language names and/or IDs into a list of Google Ads language constant IDs."""
+    results: List[str] = []
+    if language_names:
+        for name in language_names:
+            if name and name in LANGUAGE_MAP:
+                lang = LANGUAGE_MAP[name]
+                if lang not in results:
+                    results.append(lang)
+    if language_name and language_name in LANGUAGE_MAP:
+        lang = LANGUAGE_MAP[language_name]
+        if lang not in results:
+            results.append(lang)
+    if language_ids:
+        for lid in language_ids:
+            if lid and str(lid) not in results:
+                results.append(str(lid))
+    if language_id and str(language_id) not in results:
+        results.append(str(language_id))
+    return results or ["1000"]  # Default: English
+
+
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
 
 class KeywordSearchRequest(BaseModel):
     seed_keywords: List[str] = []
     negative_keywords: Optional[List[str]] = None
-    # Human-readable fields (preferred — used by the frontend dropdown)
-    location_name: Optional[str] = "Kenya"
-    language_name: Optional[str] = "English"
-    # Raw numeric ID passthrough (legacy / advanced use — still supported)
+    # Multi-location / multi-language lists (preferred)
+    location_names: Optional[List[str]] = None
+    language_names: Optional[List[str]] = None
+    # Human-readable singular fields (backward-compatible)
+    location_name: Optional[str] = None
+    language_name: Optional[str] = None
+    # Raw numeric ID passthrough (legacy / advanced use)
+    location_ids: Optional[List[str]] = None
     location_id: Optional[str] = None
     language: Optional[str] = None
     # Additional context
@@ -176,9 +234,9 @@ async def search_keywords(
             if bu.google_ads_customer_id:
                 effective_customer_id = bu.google_ads_customer_id
             # If no explicit location provided, fall back to BU's saved country/language
-            if not payload.location_name and not payload.location_id and bu.target_country:
+            if not payload.location_names and not payload.location_name and not payload.location_ids and not payload.location_id and bu.target_country:
                 payload.location_id = bu.target_country
-            if not payload.language_name and not payload.language and bu.target_language:
+            if not payload.language_names and not payload.language_name and not payload.language and bu.target_language:
                 payload.language = bu.target_language
 
     if not payload.seed_keywords and not effective_url:
@@ -187,24 +245,34 @@ async def search_keywords(
             detail="Provide at least one seed keyword or a target page URL.",
         )
 
-    # Resolve human-readable names → numeric IDs
-    resolved_location_id = resolve_location_id(payload.location_name, payload.location_id)
-    resolved_language_id = resolve_language_id(payload.language_name, payload.language)
+    # Resolve human-readable names / IDs → numeric ID lists
+    resolved_location_ids = resolve_location_ids(
+        payload.location_names,
+        payload.location_name,
+        payload.location_ids,
+        payload.location_id,
+    )
+    resolved_language_ids = resolve_language_ids(
+        payload.language_names,
+        payload.language_name,
+        None,
+        payload.language,
+    )
 
     logger.info(
-        "[KEYWORD_ROUTER] location=%s → %s | language=%s → %s | seeds=%s | negatives=%s",
-        payload.location_name or payload.location_id,
-        resolved_location_id,
-        payload.language_name or payload.language,
-        resolved_language_id,
+        "[KEYWORD_ROUTER] locations=%s → %s | languages=%s → %s | seeds=%s | negatives=%s",
+        payload.location_names or payload.location_name or payload.location_id,
+        resolved_location_ids,
+        payload.language_names or payload.language_name or payload.language,
+        resolved_language_ids,
         payload.seed_keywords,
         payload.negative_keywords,
     )
 
     ideas = await keyword_service.fetch_keyword_ideas(
         payload.seed_keywords,
-        location_id=resolved_location_id,
-        language=resolved_language_id,
+        location_ids=resolved_location_ids,
+        language_ids=resolved_language_ids,
         page_url=effective_url,
         customer_id=effective_customer_id,
     )
