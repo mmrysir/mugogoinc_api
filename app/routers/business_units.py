@@ -163,6 +163,37 @@ async def update_business_unit_profile(
     return bu
 
 
+@router.post("/{bu_id}/discover-socials")
+async def trigger_gsc_social_discovery(
+    bu_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    Discovers social media profiles for a Business Unit by analyzing the verified
+    domain/property links, saving them directly to the BU profile.
+    """
+    from app.services.gsc_social import discover_business_socials_from_gsc
+
+    try:
+        socials = await discover_business_socials_from_gsc(bu_id, db)
+        # Fetch updated BU
+        result = await db.execute(select(BusinessUnit).where(BusinessUnit.id == bu_id))
+        bu = result.scalar_one_or_none()
+        return {
+            "status": "success",
+            "business_unit_id": bu_id,
+            "social_media_links": socials,
+            "raw_social_links_str": bu.social_media_links if bu else None,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Social profile discovery failed: {str(e)}"
+        )
+
+
 @router.delete("/{bu_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_business_unit(
     bu_id: str,
