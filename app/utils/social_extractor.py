@@ -9,6 +9,7 @@ SOCIAL_PATTERNS = {
     "twitter": r"(?:https?:\/\/)?(?:www\.)?(?:twitter|x)\.com\/([a-zA-Z0-9\-_%.]+)",
     "youtube": r"(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:c\/|channel\/|@)([a-zA-Z0-9\-_%.]+)",
     "tiktok": r"(?:https?:\/\/)?(?:www\.)?tiktok\.com\/@([a-zA-Z0-9\-_%.]+)",
+    "google_business": r"(?:https?:\/\/)?(?:www\.)?(?:google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps)\/[^\s\"'>]+",
 }
 
 # Exclusion keywords (sharing buttons, widget links, login redirects)
@@ -33,6 +34,13 @@ def clean_social_url(raw_url: str) -> str:
     parsed = urlparse(raw_url)
     scheme = "https"
     netloc = parsed.netloc.lower()
+    # For Google Maps, preserve query params (cid, q, etc.)
+    if "maps" in netloc or "goo.gl" in netloc:
+        path = parsed.path.rstrip("/")
+        if not path and parsed.query:
+            path = "/"
+        query_part = f"?{parsed.query}" if parsed.query else ""
+        return f"{scheme}://{netloc}{path}{query_part}"
     path = parsed.path.rstrip("/")
     return f"{scheme}://{netloc}{path}"
 

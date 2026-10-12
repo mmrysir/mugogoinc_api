@@ -15,6 +15,7 @@ def test_extract_social_links():
         "https://x.com/mugogo_inc",
         "https://www.youtube.com/@mugogotv",
         "https://tiktok.com/@mugogosafaris",
+        "https://maps.google.com/?cid=1234567890123456",
         # Bad / sharing URLs should be ignored
         "https://www.facebook.com/sharer/sharer.php?u=example.com",
         "https://twitter.com/intent/tweet?text=hello",
@@ -41,4 +42,7 @@ def test_extract_social_links():
     assert "tiktok" in socials
     assert socials["tiktok"] == "https://tiktok.com/@mugogosafaris"
 
-    assert len(socials) == 6
+    assert "google_business" in socials
+    assert socials["google_business"] == "https://maps.google.com/?cid=1234567890123456"
+
+    assert len(socials) == 7

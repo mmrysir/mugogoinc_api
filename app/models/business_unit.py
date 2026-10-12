@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -40,9 +40,14 @@ class BusinessUnit(Base):
     owner_whatsapp_number: Mapped[str] = mapped_column(String(20), nullable=False)
     owner_email: Mapped[str] = mapped_column(String(255), nullable=False)
     primary_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    social_media_links: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    social_media_links: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
     google_ads_customer_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     google_search_console_site: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    google_business_place_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    google_business_map_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    google_business_rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    google_business_review_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    digital_footprint_metrics: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     target_country: Mapped[Optional[str]] = mapped_column(String(10), default="2404", nullable=True)
     target_language: Mapped[Optional[str]] = mapped_column(String(10), default="1000", nullable=True)
     created_at: Mapped[datetime] = mapped_column(
