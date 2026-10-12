@@ -14,7 +14,9 @@ class AgentOrgAssignment(Base):
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     assigned_by_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    assigned_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
 
     __table_args__ = (
         UniqueConstraint("agent_id", "org_id", name="uq_agent_org_assignment"),
@@ -43,7 +45,12 @@ class ClientMarketingChannel(Base):
     encrypted_oauth_tokens: Mapped[Optional[str]] = mapped_column(Text, nullable=True) # Fernet encrypted JSON containing credentials for google_ads, meta, etc.
     gsc_platform_properties: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True) # e.g. {"instagram": "@handle", "tiktok": "@handle"}
     
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     # Relationship
     organization = relationship("Organization", back_populates="marketing_channels")

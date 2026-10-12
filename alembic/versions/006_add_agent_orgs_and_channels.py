@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column('org_id', sa.String(36), nullable=False),
         sa.Column('assigned_by_id', sa.String(36), nullable=True),
         sa.Column('is_primary', sa.Boolean(), server_default=sa.false(), nullable=False),
-        sa.Column('assigned_at', sa.DateTime(), nullable=False),
+        sa.Column('assigned_at', sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(['agent_id'], ['users.id'], ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['org_id'], ['organizations.id'], ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['assigned_by_id'], ['users.id'], ondelete='SET NULL'),
@@ -44,7 +44,7 @@ def upgrade() -> None:
         sa.Column('alert_phone', sa.String(50), nullable=True),
         sa.Column('encrypted_oauth_tokens', sa.Text(), nullable=True),
         sa.Column('gsc_platform_properties', sa.JSON(), nullable=True),
-        sa.Column('updated_at', sa.DateTime(), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(['org_id'], ['organizations.id'], ondelete='CASCADE'),
         sa.UniqueConstraint('org_id')
     )
