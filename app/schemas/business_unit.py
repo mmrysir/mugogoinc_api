@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional, Union
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from app.models.business_unit import RouteType
 
@@ -33,7 +34,7 @@ class BusinessUnitUpdate(BaseModel):
     google_business_map_url: Optional[str] = Field(None, max_length=1024)
     google_business_rating: Optional[float] = None
     google_business_review_count: Optional[int] = None
-    digital_footprint_metrics: Optional[str] = None
+    digital_footprint_metrics: Optional[Union[Dict[str, Any], str]] = None
     target_country: Optional[str] = Field(None, max_length=10)
     target_language: Optional[str] = Field(None, max_length=10)
 
@@ -58,10 +59,20 @@ class BusinessUnitResponse(BaseModel):
     google_business_map_url: Optional[str] = None
     google_business_rating: Optional[float] = None
     google_business_review_count: Optional[int] = None
-    digital_footprint_metrics: Optional[str] = None
+    digital_footprint_metrics: Optional[Union[Dict[str, Any], str]] = None
     target_country: Optional[str] = "2404"
     target_language: Optional[str] = "1000"
     created_at: datetime
+
+    @field_validator("digital_footprint_metrics", mode="before")
+    @classmethod
+    def parse_footprint(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.strip().startswith("{"):
+            try:
+                return json.loads(v)
+            except Exception:
+                return v
+        return v
 
 
 class BusinessUnitListResponse(BaseModel):

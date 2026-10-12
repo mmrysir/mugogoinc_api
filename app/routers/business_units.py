@@ -184,6 +184,10 @@ async def trigger_gsc_social_discovery(
             "status": "success",
             "business_unit_id": bu_id,
             "social_media_links": socials,
+            "google_business_rating": bu.google_business_rating if bu else None,
+            "google_business_review_count": bu.google_business_review_count if bu else None,
+            "google_business_map_url": bu.google_business_map_url if bu else None,
+            "digital_footprint_metrics": bu.digital_footprint_metrics if bu else None,
             "raw_social_links_str": bu.social_media_links if bu else None,
         }
     except ValueError as e:
@@ -192,6 +196,81 @@ async def trigger_gsc_social_discovery(
         raise HTTPException(
             status_code=500, detail=f"Social profile discovery failed: {str(e)}"
         )
+
+
+@router.post("/{bu_id}/sync-gbp")
+async def sync_google_business_profile(
+    bu_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    Synchronizes live Google Business Profile reviews, ratings, and map metadata
+    using Google Places API with the stored google_business_place_id.
+    """
+    import json
+    from app.services.places import fetch_google_place_details
+
+    result = await db.execute(select(BusinessUnit).where(BusinessUnit.id == bu_id))
+    bu = result.scalar_one_or_none()
+    if not bu:
+        raise HTTPException(status_code=404, detail="Business Unit not found.")
+    if not bu.google_business_place_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Business Unit does not have a Google Business Place ID configured. Please add one in profile settings.",
+        )
+
+    place_data = await fetch_google_place_details(bu.google_business_place_id)
+    if not place_data:
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to retrieve data from Google Places API. Verify Place ID and GOOGLE_PLACES_API_KEY in environment.",
+        )
+
+    if place_data.get("rating") is not None:
+        bu.google_business_rating = place_data["rating"]
+    if place_data.get("review_count") is not None:
+        bu.google_business_review_count = place_data["review_count"]
+    if place_data.get("map_url"):
+        bu.google_business_map_url = place_data["map_url"]
+
+    # Update digital footprint
+    footprint = {}
+    if bu.digital_footprint_metrics:
+        try:
+            footprint = (
+                json.loads(bu.digital_footprint_metrics)
+                if isinstance(bu.digital_footprint_metrics, str)
+                else dict(bu.digital_footprint_metrics)
+            )
+        except Exception:
+            footprint = {}
+    footprint["google_business"] = {
+        "status": "verified",
+        "place_id": bu.google_business_place_id,
+        "rating": bu.google_business_rating,
+        "reviews": bu.google_business_review_count,
+        "business_status": place_data.get("business_status"),
+        "map_url": bu.google_business_map_url,
+    }
+    bu.digital_footprint_metrics = json.dumps(footprint)
+
+    await db.commit()
+    await db.refresh(bu)
+
+    return {
+        "status": "success",
+        "data": place_data,
+        "business_unit": {
+            "id": bu.id,
+            "google_business_place_id": bu.google_business_place_id,
+            "google_business_rating": bu.google_business_rating,
+            "google_business_review_count": bu.google_business_review_count,
+            "google_business_map_url": bu.google_business_map_url,
+            "digital_footprint_metrics": footprint,
+        },
+    }
 
 
 @router.delete("/{bu_id}", status_code=status.HTTP_204_NO_CONTENT)
