@@ -61,7 +61,45 @@ async def test_keyword_search_and_campaign_health():
             assert "high_top_of_page_bid_usd" in kw
             assert "opportunity_score" in kw
 
-        # 2. Campaign health monitor endpoint
+        # 2. Keyword search with negative keywords exclusion
+        kw_neg_resp = await client.post(
+            "/api/v1/marketing/keywords/search",
+            json={
+                "seed_keywords": ["3 day masai mara safari", "tax compliance kenya"],
+                "negative_keywords": ["safari"],
+            },
+            headers=headers,
+        )
+        assert kw_neg_resp.status_code == 200, kw_neg_resp.text
+        kw_neg_data = kw_neg_resp.json()
+        # Ensure no returned keyword contains the negative term "safari"
+        for kw in kw_neg_data["keywords"]:
+            assert "safari" not in kw["keyword"].lower()
+
+        # 3. Scrape preview endpoint
+        from unittest.mock import patch
+        mock_scrape_data = {
+            "success": True,
+            "url": "https://example.com",
+            "title": "Example Tours & Safaris",
+            "meta_description": "Premier safari packages in East Africa",
+            "headings": ["Masai Mara Safari", "Amboseli National Park", "Contact Us"],
+            "discovered_socials": {"instagram": "https://instagram.com/example"},
+        }
+        with patch("app.services.scraper.scrape_client_website", return_value=mock_scrape_data):
+            scrape_resp = await client.post(
+                "/api/v1/marketing/scrape-preview",
+                json={"url": "https://example.com"},
+                headers=headers,
+            )
+            assert scrape_resp.status_code == 200, scrape_resp.text
+            scrape_data = scrape_resp.json()
+            assert scrape_data["success"] is True
+            assert scrape_data["title"] == "Example Tours & Safaris"
+            assert "Masai Mara Safari" in scrape_data["suggested_seeds"]
+            assert len(scrape_data["suggested_seeds"]) >= 2
+
+        # 4. Campaign health monitor endpoint
         camp_resp = await client.post(
             "/api/v1/marketing/campaigns/check-health",
             json=[

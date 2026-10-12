@@ -77,6 +77,7 @@ def resolve_language_id(language_name: Optional[str], language_id: Optional[str]
 
 class KeywordSearchRequest(BaseModel):
     seed_keywords: List[str] = []
+    negative_keywords: Optional[List[str]] = None
     # Human-readable fields (preferred — used by the frontend dropdown)
     location_name: Optional[str] = "Kenya"
     language_name: Optional[str] = "English"
@@ -86,6 +87,10 @@ class KeywordSearchRequest(BaseModel):
     # Additional context
     page_url: Optional[str] = None
     business_unit_id: Optional[str] = None
+
+
+class ScrapePreviewRequest(BaseModel):
+    url: str
 
 
 class CampaignMetricsInput(BaseModel):
@@ -114,6 +119,36 @@ async def get_keyword_locations() -> Dict[str, Any]:
             {"name": name, "id": lang_id}
             for name, lang_id in LANGUAGE_MAP.items()
         ],
+    }
+
+
+@router.post(
+    "/scrape-preview",
+    summary="Scrape website metadata and derive suggested keyword seeds",
+    dependencies=[Depends(require_role(UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.AGENT))],
+)
+async def scrape_preview(payload: ScrapePreviewRequest) -> Dict[str, Any]:
+    """Scrape website homepage to extract title, meta description, headings, and suggested seed keywords."""
+    from app.services.scraper import scrape_client_website
+    res = await scrape_client_website(payload.url)
+
+    suggested_seeds: List[str] = []
+    if res.get("success"):
+        if res.get("title"):
+            suggested_seeds.append(res["title"])
+        for h in res.get("headings", [])[:5]:
+            if h and h not in suggested_seeds:
+                suggested_seeds.append(h)
+
+    return {
+        "success": res.get("success", False),
+        "url": res.get("url", payload.url),
+        "title": res.get("title", ""),
+        "meta_description": res.get("meta_description", ""),
+        "headings": res.get("headings", []),
+        "discovered_socials": res.get("discovered_socials", {}),
+        "suggested_seeds": suggested_seeds,
+        "error": res.get("error"),
     }
 
 
@@ -157,12 +192,13 @@ async def search_keywords(
     resolved_language_id = resolve_language_id(payload.language_name, payload.language)
 
     logger.info(
-        "[KEYWORD_ROUTER] location=%s → %s | language=%s → %s | seeds=%s",
+        "[KEYWORD_ROUTER] location=%s → %s | language=%s → %s | seeds=%s | negatives=%s",
         payload.location_name or payload.location_id,
         resolved_location_id,
         payload.language_name or payload.language,
         resolved_language_id,
         payload.seed_keywords,
+        payload.negative_keywords,
     )
 
     ideas = await keyword_service.fetch_keyword_ideas(
@@ -172,6 +208,20 @@ async def search_keywords(
         page_url=effective_url,
         customer_id=effective_customer_id,
     )
+
+    # Filter out keywords that contain any negative keyword term
+    if payload.negative_keywords:
+        neg_terms = [
+            n.lower().strip()
+            for n in payload.negative_keywords
+            if n and n.strip()
+        ]
+        if neg_terms:
+            ideas = [
+                kw for kw in ideas
+                if not any(neg in kw.get("keyword", "").lower() for neg in neg_terms)
+            ]
+
     return {"keywords": ideas, "count": len(ideas)}
 
 

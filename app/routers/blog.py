@@ -70,6 +70,7 @@ from app.models.organization import Organization
 )
 async def list_published_posts(
     org_id: Optional[str] = None,
+    business_unit_id: Optional[str] = Query(None, description="Optional Business Unit ID filter"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     tenant: Optional[Organization] = Depends(get_current_tenant),
@@ -84,6 +85,8 @@ async def list_published_posts(
     target_org_id = tenant.id if tenant else org_id
     if target_org_id:
         base_query = base_query.where(BlogPost.organization_id == target_org_id)
+    if business_unit_id:
+        base_query = base_query.where(BlogPost.business_unit_id == business_unit_id)
 
     # Count total
     count_query = select(func.count()).select_from(base_query.subquery())
