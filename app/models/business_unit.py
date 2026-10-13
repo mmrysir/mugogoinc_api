@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -48,6 +48,13 @@ class BusinessUnit(Base):
     google_business_rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     google_business_review_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     digital_footprint_metrics: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # ── Google Search Console OAuth & Telemetry ───────────────────────────────
+    gsc_site_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    gsc_access_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    gsc_refresh_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    gsc_metrics: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=dict)
+
     target_country: Mapped[Optional[str]] = mapped_column(String(10), default="2404", nullable=True)
     target_language: Mapped[Optional[str]] = mapped_column(String(10), default="1000", nullable=True)
     created_at: Mapped[datetime] = mapped_column(
