@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,9 +48,9 @@ def _gsc_client_secret() -> str:
     return settings.gsc_client_secret or settings.google_ads_client_secret
 
 
-def _callback_uri(bu_id: str) -> str:
-    """Build the redirect_uri that must match the Google Cloud Console config."""
-    base = settings.app_base_url.rstrip("/")
+def _callback_uri(request: Request, bu_id: str) -> str:
+    """Build the redirect_uri from the live request — no APP_BASE_URL env var needed."""
+    base = str(request.base_url).rstrip("/")
     return f"{base}/api/v1/business-units/{bu_id}/gsc/callback"
 
 
@@ -65,6 +65,7 @@ def _callback_uri(bu_id: str) -> str:
 )
 async def gsc_auth_initiate(
     bu_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     """Redirect the user to Google's OAuth consent screen.
@@ -89,7 +90,7 @@ async def gsc_auth_initiate(
 
     params = {
         "client_id": client_id,
-        "redirect_uri": _callback_uri(bu_id),
+        "redirect_uri": _callback_uri(request, bu_id),
         "response_type": "code",
         "scope": _GSC_SCOPE,
         "access_type": "offline",
@@ -109,6 +110,7 @@ async def gsc_auth_initiate(
 )
 async def gsc_oauth_callback(
     bu_id: str,
+    request: Request,
     code: Optional[str] = Query(None),
     error: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
@@ -155,7 +157,7 @@ async def gsc_oauth_callback(
         "code": code,
         "client_id": _gsc_client_id(),
         "client_secret": _gsc_client_secret(),
-        "redirect_uri": _callback_uri(bu_id),
+        "redirect_uri": _callback_uri(request, bu_id),
         "grant_type": "authorization_code",
     }
 

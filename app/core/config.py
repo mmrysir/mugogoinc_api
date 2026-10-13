@@ -57,9 +57,6 @@ class Settings(BaseSettings):
     # Falls back to the shared Google Ads credentials if not separately specified.
     gsc_client_id: str = ""
     gsc_client_secret: str = ""
-    # The full public URL this backend is reachable on (used to build the OAuth
-    # callback redirect_uri registered in Google Cloud Console).
-    app_base_url: str = "http://localhost:8000"
 
     cors_origins: str = "https://engine.mugogoinc.com,http://localhost:3000,http://localhost:3002,http://localhost:5173"
 
