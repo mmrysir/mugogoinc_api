@@ -40,11 +40,25 @@ _GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
 
 
 def _gsc_client_id() -> str:
-    return settings.gsc_client_id or settings.google_ads_client_id
+    """GSC web client ID — never falls back to the Desktop Google Ads client."""
+    client_id = settings.gsc_client_id
+    if not client_id:
+        raise HTTPException(
+            status_code=500,
+            detail="GSC_CLIENT_ID is not configured on the server. Add it to .env and redeploy.",
+        )
+    return client_id
 
 
 def _gsc_client_secret() -> str:
-    return settings.gsc_client_secret or settings.google_ads_client_secret
+    """GSC web client secret — never falls back to the Desktop Google Ads client."""
+    secret = settings.gsc_client_secret
+    if not secret:
+        raise HTTPException(
+            status_code=500,
+            detail="GSC_CLIENT_SECRET is not configured on the server. Add it to .env and redeploy.",
+        )
+    return secret
 
 
 def _callback_uri(request: Request, bu_id: str) -> str:
@@ -76,15 +90,7 @@ async def gsc_auth_url(
     if not bu:
         raise HTTPException(status_code=404, detail="Business Unit not found.")
 
-    client_id = _gsc_client_id()
-    if not client_id:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "GSC_CLIENT_ID (or GOOGLE_ADS_CLIENT_ID) is not configured. "
-                "Add it to the .env file."
-            ),
-        )
+    client_id = _gsc_client_id()  # raises HTTP 500 if GSC_CLIENT_ID not set
 
     params = {
         "client_id": client_id,

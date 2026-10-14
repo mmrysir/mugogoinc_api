@@ -28,13 +28,29 @@ _SEARCH_ANALYTICS_URL = (
 
 
 def _get_client_id() -> str:
-    """Return the effective GSC client ID (falls back to shared Google Ads creds)."""
-    return settings.gsc_client_id or settings.google_ads_client_id
+    """Return the GSC web client ID. Raises if not configured.
+
+    Never falls back to google_ads_client_id — that is a Desktop client
+    and Google will reject it for web redirect OAuth flows.
+    """
+    client_id = settings.gsc_client_id
+    if not client_id:
+        raise RuntimeError(
+            "GSC_CLIENT_ID is not set in .env. "
+            "Add it to the server .env and re-deploy."
+        )
+    return client_id
 
 
 def _get_client_secret() -> str:
-    """Return the effective GSC client secret."""
-    return settings.gsc_client_secret or settings.google_ads_client_secret
+    """Return the GSC web client secret. Raises if not configured."""
+    secret = settings.gsc_client_secret
+    if not secret:
+        raise RuntimeError(
+            "GSC_CLIENT_SECRET is not set in .env. "
+            "Add it to the server .env and re-deploy."
+        )
+    return secret
 
 
 async def _refresh_access_token(refresh_token: str) -> Optional[str]:
