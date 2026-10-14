@@ -15,10 +15,14 @@ jobs:
     steps:
       - name: Deploy Mugogo API to DigitalOcean via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          GSC_CLIENT_ID:     ${{ secrets.GSC_CLIENT_ID }}
+          GSC_CLIENT_SECRET: ${{ secrets.GSC_CLIENT_SECRET }}
         with:
-          host: ${{ secrets.SSH_HOST }}
+          host:     ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
+          key:      ${{ secrets.SSH_KEY }}
+          envs: GSC_CLIENT_ID,GSC_CLIENT_SECRET
           script: |
             set -e
 
@@ -40,6 +44,20 @@ jobs:
             else
               git pull origin main
             fi
+
+            # ── Inject GSC secrets into .env (upsert — never echo values) ───
+            # sed updates the line if the key exists; grep+echo appends if missing.
+            # Values flow from GitHub Secrets → env vars → file. Never logged.
+            _upsert_env() {
+              local key="$1" val="$2" file=".env"
+              if grep -q "^${key}=" "$file"; then
+                sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+              else
+                echo "${key}=${val}" >> "$file"
+              fi
+            }
+            _upsert_env "GSC_CLIENT_ID"     "$GSC_CLIENT_ID"
+            _upsert_env "GSC_CLIENT_SECRET" "$GSC_CLIENT_SECRET"
 
             # ── Setup virtual environment & install dependencies ─────────────
             python3 -m venv venv
