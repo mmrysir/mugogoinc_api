@@ -16,7 +16,6 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,24 +53,23 @@ def _callback_uri(request: Request, bu_id: str) -> str:
     return f"{base}/api/v1/business-units/{bu_id}/gsc/callback"
 
 
-# ── Auth Initiation ────────────────────────────────────────────────────────────
+# ── Auth URL (authenticated JSON endpoint) ───────────────────────────────────
 
 @router.get(
-    "/{bu_id}/gsc/auth",
-    summary="Initiate Google Search Console OAuth flow",
-    response_class=RedirectResponse,
-    status_code=302,
+    "/{bu_id}/gsc/auth-url",
+    summary="Get the Google OAuth consent URL for GSC connection",
     dependencies=[Depends(require_role(UserRole.SUPER_ADMIN, UserRole.MANAGER))],
 )
-async def gsc_auth_initiate(
+async def gsc_auth_url(
     bu_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> RedirectResponse:
-    """Redirect the user to Google's OAuth consent screen.
+) -> Dict[str, Any]:
+    """Return the Google OAuth consent URL as JSON.
 
-    The `bu_id` is embedded in the OAuth `state` parameter so the callback
-    knows which Business Unit to associate the tokens with.
+    The frontend fetches this with its JWT (Authorization header), then
+    navigates to the returned URL via window.location.href — solving the
+    problem of browser navigations not being able to carry Bearer tokens.
     """
     result = await db.execute(select(BusinessUnit).where(BusinessUnit.id == bu_id))
     bu = result.scalar_one_or_none()
@@ -94,12 +92,12 @@ async def gsc_auth_initiate(
         "response_type": "code",
         "scope": _GSC_SCOPE,
         "access_type": "offline",
-        "prompt": "consent",          # Force consent to always receive a refresh_token
-        "state": bu_id,               # Carry BU identity through the redirect
+        "prompt": "consent",
+        "state": bu_id,
     }
     consent_url = f"{_GOOGLE_AUTH_URL}?{urlencode(params)}"
-    logger.info("[GSC_OAUTH] Initiating consent flow for BU %s", bu_id)
-    return RedirectResponse(url=consent_url, status_code=302)
+    logger.info("[GSC_OAUTH] Auth URL generated for BU %s", bu_id)
+    return {"auth_url": consent_url}
 
 
 # ── OAuth Callback ─────────────────────────────────────────────────────────────
