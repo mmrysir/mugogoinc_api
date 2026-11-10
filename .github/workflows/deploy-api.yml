@@ -51,6 +51,8 @@ jobs:
               git clone https://github.com/mmrysir/mugogoinc_api.git .
             else
               git remote set-url origin https://github.com/mmrysir/mugogoinc_api.git
+              git config --local credential.helper ""
+              export GIT_TERMINAL_PROMPT=0
               git pull origin main
             fi
 
