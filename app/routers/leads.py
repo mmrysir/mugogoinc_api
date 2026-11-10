@@ -46,7 +46,7 @@ def _agent_permitted_bu_ids(user_id: str):
     # Import here to avoid circular-import risk during Sprint 2 model addition.
     # Once agent_org_assignments table exists, this will resolve correctly.
     try:
-        from app.models.agent_assignment import AgentOrgAssignment
+        from app.models.tenant_channels import AgentOrgAssignment
         junction_org_ids = select(AgentOrgAssignment.org_id).where(
             AgentOrgAssignment.agent_id == user_id
         )
@@ -177,7 +177,7 @@ async def get_lead(
             # Check junction table assignment (Sprint 2+)
             is_assigned = False
             try:
-                from app.models.agent_assignment import AgentOrgAssignment
+                from app.models.tenant_channels import AgentOrgAssignment
                 junction_check = await db.scalar(
                     select(AgentOrgAssignment).where(
                         AgentOrgAssignment.agent_id == current_user.id,

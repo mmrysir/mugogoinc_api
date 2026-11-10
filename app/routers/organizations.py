@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.organization import Organization
+from app.models.tenant_channels import AgentOrgAssignment
 from app.models.user import User, UserRole
 from app.routers.auth import get_current_user
 from app.schemas.organization import (
@@ -24,12 +25,21 @@ from app.schemas.organization import (
 router = APIRouter(prefix="/organizations", tags=["Organizations"], dependencies=[Depends(get_current_user)])
 
 
-def _can_access(user: User, org: Organization) -> bool:
+async def _can_access(user: User, org: Organization, db: AsyncSession) -> bool:
     if user.role == UserRole.SUPER_ADMIN:
         return True
     if user.role == UserRole.MANAGER:
         return org.created_by_id == user.id or org.assigned_agent_id == user.id
-    return org.assigned_agent_id == user.id
+    # AGENT: legacy FK or junction
+    if org.assigned_agent_id == user.id:
+        return True
+    junction = await db.scalar(
+        select(AgentOrgAssignment).where(
+            AgentOrgAssignment.agent_id == user.id,
+            AgentOrgAssignment.org_id == org.id,
+        )
+    )
+    return junction is not None
 
 
 @router.get("", response_model=OrganizationListResponse)
@@ -50,7 +60,12 @@ async def list_organizations(
             | (Organization.assigned_agent_id == current_user.id)
         )
     else:  # AGENT
-        q = q.where(Organization.assigned_agent_id == current_user.id)
+        q = q.where(
+            (Organization.assigned_agent_id == current_user.id)
+            | (Organization.id.in_(
+                select(AgentOrgAssignment.org_id).where(AgentOrgAssignment.agent_id == current_user.id)
+            ))
+        )
 
     count_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = count_result.scalar_one()
@@ -107,7 +122,7 @@ async def get_organization(
     org = result.scalar_one_or_none()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-    if not _can_access(current_user, org):
+    if not await _can_access(current_user, org, db):
         raise HTTPException(status_code=403, detail="Insufficient privileges")
     return org
 
@@ -125,7 +140,7 @@ async def update_organization(
         raise HTTPException(status_code=404, detail="Organization not found")
     if current_user.role not in (UserRole.SUPER_ADMIN, UserRole.MANAGER):
         raise HTTPException(status_code=403, detail="Insufficient privileges")
-    if not _can_access(current_user, org):
+    if not await _can_access(current_user, org, db):
         raise HTTPException(status_code=403, detail="Insufficient privileges")
 
     update_data = body.model_dump(exclude_unset=True)
@@ -171,6 +186,21 @@ async def assign_agent(
             )
 
     org.assigned_agent_id = agent_id
+    # Maintain many-to-many junction (Agent OS) for multi-client agent support
+    if agent_id:
+        existing_assignment = await db.scalar(
+            select(AgentOrgAssignment).where(
+                AgentOrgAssignment.agent_id == agent_id,
+                AgentOrgAssignment.org_id == org_id,
+            )
+        )
+        if not existing_assignment:
+            db.add(AgentOrgAssignment(
+                agent_id=agent_id,
+                org_id=org_id,
+                assigned_by_id=current_user.id,
+                is_primary=(org.assigned_agent_id is None),
+            ))
     await db.flush()
     return org
 
@@ -188,7 +218,7 @@ async def delete_organization(
     # Ensure only SUPER_ADMIN can delete organizations
     if current_user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Insufficient privileges")
-    if not _can_access(current_user, org):
+    if not await _can_access(current_user, org, db):
         raise HTTPException(status_code=403, detail="Insufficient privileges")
     await db.delete(org)
     return Response(status_code=204)

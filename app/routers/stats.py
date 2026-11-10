@@ -11,18 +11,28 @@ from app.core.database import get_db
 from app.models.lead import Lead, DeliveryStatus, SourceChannel
 from app.models.organization import Organization
 from app.models.business_unit import BusinessUnit
+from app.models.tenant_channels import AgentOrgAssignment
 from app.models.user import User, UserRole
 from app.routers.auth import get_current_user
 
 router = APIRouter(prefix="/stats", tags=["Stats"], dependencies=[Depends(get_current_user)])
 
 
-def _can_access_org(user: User, org: Organization) -> bool:
+async def _can_access_org(user: User, org: Organization, db: AsyncSession) -> bool:
     if user.role == UserRole.SUPER_ADMIN:
         return True
     if user.role == UserRole.MANAGER:
         return org.created_by_id == user.id or org.assigned_agent_id == user.id
-    return org.assigned_agent_id == user.id
+    # AGENT: legacy FK or junction assignment
+    if org.assigned_agent_id == user.id:
+        return True
+    junction = await db.scalar(
+        select(AgentOrgAssignment).where(
+            AgentOrgAssignment.agent_id == user.id,
+            AgentOrgAssignment.org_id == org.id,
+        )
+    )
+    return junction is not None
 
 
 @router.get("/dashboard", response_model=Dict[str, Any])
@@ -46,8 +56,12 @@ async def dashboard_stats(
             | (Organization.assigned_agent_id == current_user.id)
         )
     else:  # AGENT
+        agent_org_ids = select(AgentOrgAssignment.org_id).where(
+            AgentOrgAssignment.agent_id == current_user.id
+        )
         allowed_orgs = allowed_orgs.where(
-            Organization.assigned_agent_id == current_user.id
+            (Organization.assigned_agent_id == current_user.id)
+            | (Organization.id.in_(agent_org_ids))
         )
 
     allowed_orgs_subq = allowed_orgs.subquery()
@@ -175,7 +189,7 @@ async def organization_stats(
     org = await db.scalar(select(Organization).where(Organization.id == org_id))
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-    if not _can_access_org(current_user, org):
+    if not await _can_access_org(current_user, org, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient privileges",

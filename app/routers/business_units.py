@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.routers.auth import get_current_user
 from app.models.business_unit import BusinessUnit
 from app.models.organization import Organization
+from app.models.tenant_channels import AgentOrgAssignment
 from app.models.user import User, UserRole
 from app.schemas.business_unit import (
     BusinessUnitCreate,
@@ -53,7 +54,10 @@ async def list_business_units(
     else:
         # Agents only see BUs from their assigned organizations
         agent_org_ids = select(Organization.id).where(
-            Organization.assigned_agent_id == current_user.id
+            (Organization.assigned_agent_id == current_user.id)
+            | (Organization.id.in_(
+                select(AgentOrgAssignment.org_id).where(AgentOrgAssignment.agent_id == current_user.id)
+            ))
         )
         q = q.where(BusinessUnit.organization_id.in_(agent_org_ids))
         if organization_id:
