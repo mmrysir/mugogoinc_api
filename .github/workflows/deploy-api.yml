@@ -16,13 +16,21 @@ jobs:
       - name: Deploy Mugogo API to DigitalOcean via SSH
         uses: appleboy/ssh-action@v1.0.3
         env:
-          GSC_CLIENT_ID:     ${{ secrets.GSC_CLIENT_ID }}
-          GSC_CLIENT_SECRET: ${{ secrets.GSC_CLIENT_SECRET }}
+          GSC_CLIENT_ID:                 ${{ secrets.GSC_CLIENT_ID }}
+          GSC_CLIENT_SECRET:             ${{ secrets.GSC_CLIENT_SECRET }}
+          GOOGLE_ADS_DEVELOPER_TOKEN:    ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+          GOOGLE_ADS_CLIENT_ID:          ${{ secrets.GOOGLE_ADS_CLIENT_ID }}
+          GOOGLE_ADS_CLIENT_SECRET:      ${{ secrets.GOOGLE_ADS_CLIENT_SECRET }}
+          GOOGLE_ADS_REFRESH_TOKEN:      ${{ secrets.GOOGLE_ADS_REFRESH_TOKEN }}
+          GOOGLE_ADS_CUSTOMER_ID:        ${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}
+          GOOGLE_ADS_LOGIN_CUSTOMER_ID:  ${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}
+          GOOGLE_ADS_CONVERSION_ACTION_ID: ${{ secrets.GOOGLE_ADS_CONVERSION_ACTION_ID }}
+          APP_BASE_URL:                  ${{ secrets.APP_BASE_URL }}
         with:
           host:     ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key:      ${{ secrets.SSH_KEY }}
-          envs: GSC_CLIENT_ID,GSC_CLIENT_SECRET
+          envs: GSC_CLIENT_ID,GSC_CLIENT_SECRET,GOOGLE_ADS_DEVELOPER_TOKEN,GOOGLE_ADS_CLIENT_ID,GOOGLE_ADS_CLIENT_SECRET,GOOGLE_ADS_REFRESH_TOKEN,GOOGLE_ADS_CUSTOMER_ID,GOOGLE_ADS_LOGIN_CUSTOMER_ID,GOOGLE_ADS_CONVERSION_ACTION_ID,APP_BASE_URL
           script: |
             set -e
 
@@ -56,8 +64,16 @@ jobs:
                 echo "${key}=${val}" >> "$file"
               fi
             }
-            _upsert_env "GSC_CLIENT_ID"     "$GSC_CLIENT_ID"
-            _upsert_env "GSC_CLIENT_SECRET" "$GSC_CLIENT_SECRET"
+            _upsert_env "GSC_CLIENT_ID"                 "$GSC_CLIENT_ID"
+            _upsert_env "GSC_CLIENT_SECRET"             "$GSC_CLIENT_SECRET"
+            _upsert_env "GOOGLE_ADS_DEVELOPER_TOKEN"    "$GOOGLE_ADS_DEVELOPER_TOKEN"
+            _upsert_env "GOOGLE_ADS_CLIENT_ID"          "$GOOGLE_ADS_CLIENT_ID"
+            _upsert_env "GOOGLE_ADS_CLIENT_SECRET"      "$GOOGLE_ADS_CLIENT_SECRET"
+            _upsert_env "GOOGLE_ADS_REFRESH_TOKEN"      "$GOOGLE_ADS_REFRESH_TOKEN"
+            _upsert_env "GOOGLE_ADS_CUSTOMER_ID"        "$GOOGLE_ADS_CUSTOMER_ID"
+            _upsert_env "GOOGLE_ADS_LOGIN_CUSTOMER_ID"  "$GOOGLE_ADS_LOGIN_CUSTOMER_ID"
+            _upsert_env "GOOGLE_ADS_CONVERSION_ACTION_ID" "$GOOGLE_ADS_CONVERSION_ACTION_ID"
+            _upsert_env "APP_BASE_URL"                  "$APP_BASE_URL"
 
             # ── Setup virtual environment & install dependencies ─────────────
             python3 -m venv venv
