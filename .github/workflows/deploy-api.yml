@@ -74,6 +74,7 @@ jobs:
             _upsert_env "GOOGLE_ADS_LOGIN_CUSTOMER_ID"  "$GOOGLE_ADS_LOGIN_CUSTOMER_ID"
             _upsert_env "GOOGLE_ADS_CONVERSION_ACTION_ID" "$GOOGLE_ADS_CONVERSION_ACTION_ID"
             _upsert_env "APP_BASE_URL"                  "$APP_BASE_URL"
+            _upsert_env "CORS_ORIGINS"                  "https://engine.mugogoinc.com,https://mugogoinc.com,https://www.mugogoinc.com,http://localhost:3000,http://localhost:3002"
 
             # ── Setup virtual environment & install dependencies ─────────────
             python3 -m venv venv
