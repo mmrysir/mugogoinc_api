@@ -301,13 +301,17 @@ async def search_keywords(
         payload.negative_keywords,
     )
 
-    ideas = await keyword_service.fetch_keyword_ideas(
-        payload.seed_keywords,
-        location_ids=resolved_location_ids,
-        language_ids=resolved_language_ids,
-        page_url=effective_url,
-        customer_id=effective_customer_id,
-    )
+    try:
+        ideas = await keyword_service.fetch_keyword_ideas(
+            payload.seed_keywords,
+            location_ids=resolved_location_ids,
+            language_ids=resolved_language_ids,
+            page_url=effective_url,
+            customer_id=effective_customer_id,
+        )
+    except Exception as exc:
+        logger.exception("[KEYWORD_ROUTER] Keyword search failed: %s", exc)
+        ideas = []
 
     # Filter out keywords that contain any negative keyword term
     if payload.negative_keywords:

@@ -92,28 +92,28 @@ class KeywordPlannerService:
         valid_keywords = [k.strip() for k in seed_keywords if k.strip()] if seed_keywords else []
 
         def _fetch_for_lang(target_lang: str) -> List[Dict[str, Any]]:
-            client = get_google_ads_client()
-            keyword_plan_idea_service = client.get_service("KeywordPlanIdeaService")
-
-            request = client.get_type("GenerateKeywordIdeasRequest")
-            request.customer_id = effective_customer_id
-            request.language = f"languageConstants/{target_lang}"
-
-            # Google Ads API natively accepts multiple geo-target constants in a single request
-            for loc in loc_list:
-                request.geo_target_constants.append(f"geoTargetConstants/{loc}")
-
-            if valid_keywords and page_url:
-                request.keyword_and_url_seed.url = page_url
-                request.keyword_and_url_seed.keywords.extend(valid_keywords)
-            elif valid_keywords:
-                request.keyword_seed.keywords.extend(valid_keywords)
-            elif page_url:
-                request.url_seed.url = page_url
-
-            request.keyword_plan_network = client.enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH
-
             try:
+                client = get_google_ads_client()
+                keyword_plan_idea_service = client.get_service("KeywordPlanIdeaService")
+
+                request = client.get_type("GenerateKeywordIdeasRequest")
+                request.customer_id = effective_customer_id
+                request.language = f"languageConstants/{target_lang}"
+
+                # Google Ads API natively accepts multiple geo-target constants in a single request
+                for loc in loc_list:
+                    request.geo_target_constants.append(f"geoTargetConstants/{loc}")
+
+                if valid_keywords and page_url:
+                    request.keyword_and_url_seed.url = page_url
+                    request.keyword_and_url_seed.keywords.extend(valid_keywords)
+                elif valid_keywords:
+                    request.keyword_seed.keywords.extend(valid_keywords)
+                elif page_url:
+                    request.url_seed.url = page_url
+
+                request.keyword_plan_network = client.enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH
+
                 response = keyword_plan_idea_service.generate_keyword_ideas(request=request)
 
                 batch_results: List[Dict[str, Any]] = []
