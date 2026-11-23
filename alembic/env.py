@@ -60,5 +60,8 @@ def main() -> None:
         asyncio.run(run_migrations_online())
 
 
-if __name__ == "__main__":
-    main()
+# Alembic executes this file as a module (``__name__`` is NOT ``__main__``),
+# so migrations must be dispatched at import time.  The previous
+# ``if __name__ == "__main__"`` guard meant ``alembic upgrade head`` exited 0
+# without doing anything — the production schema was never migrated.
+main()

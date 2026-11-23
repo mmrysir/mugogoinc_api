@@ -1,7 +1,7 @@
 """Add invitations table and active_organization_id to users
 
-Revision ID: 011_add_invitations_and_active_org
-Revises: 010_add_gsc_oauth_and_metrics_columns
+Revision ID: 011_invitations_active_org
+Revises: 010_gsc_oauth_metrics
 Create Date: 2026-10-17
 
 Context
@@ -17,17 +17,23 @@ The ``active_organization_id`` column on ``users`` persists which
 organization context the user last selected in the workspace switcher.
 """
 from alembic import op
+from app.core.schema_sync import (
+    add_column_if_missing,
+    alter_column_if_exists,
+    create_index_if_missing,
+    create_table_if_missing,
+)
 import sqlalchemy as sa
 
-revision = "011_add_invitations_and_active_org"
-down_revision = "010_add_gsc_oauth_and_metrics_columns"
+revision = "011_invitations_active_org"
+down_revision = "010_gsc_oauth_metrics"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
     # 1. Create invitations table
-    op.create_table(
+    create_table_if_missing(
         "invitations",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column(
@@ -63,7 +69,7 @@ def upgrade() -> None:
     )
 
     # 2. Add active_organization_id to users for workspace context persistence
-    op.add_column(
+    add_column_if_missing(
         "users",
         sa.Column(
             "active_organization_id",

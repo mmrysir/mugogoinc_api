@@ -1,7 +1,7 @@
 """Add slug to organizations table
 
 Revision ID: 008_add_organization_slug
-Revises: 007_add_bu_profile_and_gsc_columns
+Revises: 007_bu_profile_gsc_columns
 Create Date: 2026-10-11
 
 Context:
@@ -10,18 +10,24 @@ multi-tenant routing and atomic onboarding.
 Safely backfills existing rows before applying NOT NULL constraint.
 """
 from alembic import op
+from app.core.schema_sync import (
+    add_column_if_missing,
+    alter_column_if_exists,
+    create_index_if_missing,
+    create_table_if_missing,
+)
 import sqlalchemy as sa
 
 
 revision = "008_add_organization_slug"
-down_revision = "007_add_bu_profile_and_gsc_columns"
+down_revision = "007_bu_profile_gsc_columns"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
     # 1. Add column as nullable initially
-    op.add_column(
+    add_column_if_missing(
         "organizations",
         sa.Column("slug", sa.String(length=255), nullable=True),
     )
@@ -36,13 +42,13 @@ def upgrade() -> None:
     )
 
     # 3. Enforce NOT NULL and create unique index
-    op.alter_column(
+    alter_column_if_exists(
         "organizations",
         "slug",
         existing_type=sa.String(length=255),
         nullable=False,
     )
-    op.create_index(
+    create_index_if_missing(
         op.f("ix_organizations_slug"),
         "organizations",
         ["slug"],

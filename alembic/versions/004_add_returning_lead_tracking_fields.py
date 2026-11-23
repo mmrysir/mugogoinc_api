@@ -1,6 +1,6 @@
 """Add returning lead tracking fields
 
-Revision ID: 004_add_returning_lead_tracking_fields
+Revision ID: 004_returning_lead_fields
 Revises: 003_add_is_frozen_to_users
 Create Date: 2026-10-05
 
@@ -12,9 +12,15 @@ returning-lead detection strategy:
   last_activity_at  — timestamp of most recent submission (used for feed sort)
 """
 from alembic import op
+from app.core.schema_sync import (
+    add_column_if_missing,
+    alter_column_if_exists,
+    create_index_if_missing,
+    create_table_if_missing,
+)
 import sqlalchemy as sa
 
-revision = "004_add_returning_lead_tracking_fields"
+revision = "004_returning_lead_fields"
 down_revision = "003_add_is_frozen_to_users"
 branch_labels = None
 depends_on = None
@@ -22,7 +28,7 @@ depends_on = None
 
 def upgrade() -> None:
     # submission_count: starts at 1 for all existing leads
-    op.add_column(
+    add_column_if_missing(
         "leads",
         sa.Column(
             "submission_count",
@@ -33,7 +39,7 @@ def upgrade() -> None:
     )
 
     # is_returning: False for all existing leads
-    op.add_column(
+    add_column_if_missing(
         "leads",
         sa.Column(
             "is_returning",
@@ -45,7 +51,7 @@ def upgrade() -> None:
 
     # last_activity_at: back-fill with created_at for all existing rows,
     # new rows default to insert time via server_default
-    op.add_column(
+    add_column_if_missing(
         "leads",
         sa.Column(
             "last_activity_at",
@@ -57,7 +63,7 @@ def upgrade() -> None:
     )
 
     # Index for fast Lead Feed ORDER BY last_activity_at DESC
-    op.create_index(
+    create_index_if_missing(
         op.f("ix_leads_last_activity_at"),
         "leads",
         ["last_activity_at"],

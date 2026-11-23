@@ -6,6 +6,12 @@ Create Date: 2026-10-06 19:15:00.000000
 
 """
 from alembic import op
+from app.core.schema_sync import (
+    add_column_if_missing,
+    alter_column_if_exists,
+    create_index_if_missing,
+    create_table_if_missing,
+)
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
@@ -16,7 +22,7 @@ depends_on = None
 
 def upgrade() -> None:
     # 1. Create agent_org_assignments junction table with composite uniqueness
-    op.create_table(
+    create_table_if_missing(
         'agent_org_assignments',
         sa.Column('id', sa.String(36), primary_key=True),
         sa.Column('agent_id', sa.String(36), nullable=False),
@@ -29,11 +35,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['assigned_by_id'], ['users.id'], ondelete='SET NULL'),
         sa.UniqueConstraint('agent_id', 'org_id', name='uq_agent_org_assignment')
     )
-    op.create_index('ix_agent_org_assignments_agent_id', 'agent_org_assignments', ['agent_id'])
-    op.create_index('ix_agent_org_assignments_org_id', 'agent_org_assignments', ['org_id'])
+    create_index_if_missing('ix_agent_org_assignments_agent_id', 'agent_org_assignments', ['agent_id'])
+    create_index_if_missing('ix_agent_org_assignments_org_id', 'agent_org_assignments', ['org_id'])
 
     # 2. Create client_marketing_channels table with unified configuration & JSON columns
-    op.create_table(
+    create_table_if_missing(
         'client_marketing_channels',
         sa.Column('id', sa.String(36), primary_key=True),
         sa.Column('org_id', sa.String(36), nullable=False),
@@ -48,7 +54,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['org_id'], ['organizations.id'], ondelete='CASCADE'),
         sa.UniqueConstraint('org_id')
     )
-    op.create_index('ix_client_marketing_channels_org_id', 'client_marketing_channels', ['org_id'])
+    create_index_if_missing('ix_client_marketing_channels_org_id', 'client_marketing_channels', ['org_id'])
 
 def downgrade() -> None:
     op.drop_index('ix_client_marketing_channels_org_id', table_name='client_marketing_channels')

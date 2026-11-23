@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
@@ -51,6 +52,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Return a CORS-visible JSON 500 for unexpected errors.
+
+    Starlette's built-in 500 response is produced by the outermost
+    ``ServerErrorMiddleware``, *outside* ``CORSMiddleware``.  That means
+    unhandled exceptions reach the browser with no CORS headers, and the
+    frontend only sees ``TypeError: Failed to fetch`` instead of the real
+    error.  Adding the CORS headers here keeps the failure diagnosable.
+    """
+    logger.exception(
+        "Unhandled error on %s %s: %s", request.method, request.url.path, exc
+    )
+    headers: dict[str, str] = {}
+    origin = request.headers.get("origin")
+    if origin and origin in settings.allowed_origins:
+        headers["access-control-allow-origin"] = origin
+        headers["access-control-allow-credentials"] = "true"
+        headers["vary"] = "Origin"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+        headers=headers,
+    )
 # 
 # # ── Routers ───────────────────────────────────────────────────────────────────
 API_PREFIX = "/api/v1"

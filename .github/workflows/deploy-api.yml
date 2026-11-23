@@ -32,12 +32,13 @@ jobs:
           key:      ${{ secrets.SSH_KEY }}
           envs: GSC_CLIENT_ID,GSC_CLIENT_SECRET,GOOGLE_ADS_DEVELOPER_TOKEN,GOOGLE_ADS_CLIENT_ID,GOOGLE_ADS_CLIENT_SECRET,GOOGLE_ADS_REFRESH_TOKEN,GOOGLE_ADS_CUSTOMER_ID,GOOGLE_ADS_LOGIN_CUSTOMER_ID,GOOGLE_ADS_CONVERSION_ACTION_ID,APP_BASE_URL
           script: |
-            set -e
+            set -euo pipefail
 
             # ── Ensure PM2 and common binary paths are in PATH ─────────────
-            export PATH=$PATH:/usr/local/bin:/usr/bin:~/.nvm/versions/node/$(ls ~/.nvm/versions/node 2>/dev/null | tail -n 1)/bin
+            NODE_BIN="$(ls ~/.nvm/versions/node 2>/dev/null | tail -n 1 || true)"
+            export PATH="$PATH:/usr/local/bin:/usr/bin${NODE_BIN:+:$HOME/.nvm/versions/node/$NODE_BIN/bin}"
 
-            # ── Create app folder if it doesn't exist ─────────────────────────
+            # ── Create app folder if it doesn't exist ──────────────────────
             mkdir -p /var/www/mugogoinc/mugogoinc_api
             cd /var/www/mugogoinc/mugogoinc_api
 
@@ -46,19 +47,18 @@ jobs:
               exit 1
             fi
 
-            # ── Pull latest code ─────────────────────────────────────────────
+            # ── Pull latest code (public repo, never prompt for credentials) ─
             if [ ! -d ".git" ]; then
               git clone https://github.com/mmrysir/mugogoinc_api.git .
             else
               git remote set-url origin https://github.com/mmrysir/mugogoinc_api.git
               git config --local credential.helper ""
               export GIT_TERMINAL_PROMPT=0
-              git pull origin main
+              git fetch --force origin main
+              git reset --hard FETCH_HEAD
             fi
 
-            # ── Inject GSC secrets into .env (upsert — never echo values) ───
-            # sed updates the line if the key exists; grep+echo appends if missing.
-            # Values flow from GitHub Secrets → env vars → file. Never logged.
+            # ── Inject Google secrets into .env (upsert — never echo values) ─
             _upsert_env() {
               local key="$1" val="$2" file=".env"
               if grep -q "^${key}=" "$file"; then
@@ -79,17 +79,60 @@ jobs:
             _upsert_env "APP_BASE_URL"                  "$APP_BASE_URL"
             _upsert_env "CORS_ORIGINS"                  "https://engine.mugogoinc.com,https://mugogoinc.com,https://www.mugogoinc.com,http://localhost:3000,http://localhost:3002"
 
-            # ── Setup virtual environment & install dependencies ─────────────
+            # ── Setup virtual environment & install dependencies ──────────
             python3 -m venv venv
             source venv/bin/activate
             pip install --upgrade pip
             pip install -r requirements.txt
 
-            # ── Run database migrations ──────────────────────────────────────
+            # ── 1. Self-heal schema drift (tables + missing columns) ──────
+            # The production DB predates Alembic, so this is the safety net
+            # that guarantees the ORM and the physical schema agree.
+            echo "--> Repairing schema drift"
+            PYTHONPATH=. python -c "import asyncio; from app.core.database import create_all_tables; asyncio.run(create_all_tables())"
+
+            # ── 2. Apply Alembic migrations (idempotent) ──────────────────
+            echo "--> Running Alembic Database Migrations"
             PYTHONPATH=. alembic upgrade head
+            PYTHONPATH=. alembic current
 
-            # ── Start or restart under PM2 ───────────────────────────────────
+            # ── 3. Verify every ORM table/column exists ───────────────────
+            echo "--> Verifying database schema"
+            PYTHONPATH=. python scripts/verify_schema.py
+
+            # ── Start or restart under PM2 ────────────────────────────────
             PM2_PATH=$(which pm2 || echo "/usr/local/bin/pm2")
-
             $PM2_PATH startOrReload ecosystem.config.js --update-env
             $PM2_PATH save
+
+            # ── Health check: API boots and the DB-backed login works ─────
+            echo "--> Waiting for API to boot..."
+            sleep 8
+            for i in $(seq 1 12); do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8001/ || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                echo "--> Health check passed on attempt $i (HTTP 200)"
+                break
+              fi
+              echo "--> Attempt $i/12: got HTTP $STATUS — retrying in 5s..."
+              sleep 5
+              if [ "$i" = "12" ]; then
+                echo "ERROR: API health check failed after 12 attempts."
+                $PM2_PATH logs mugogo-api --lines 80 --nostream || true
+                exit 1
+              fi
+            done
+
+            # A login attempt for a non-existent user must reach the database
+            # and return 401. A 500 here means the schema/query is broken.
+            echo "--> Probing DB-backed login endpoint"
+            LOGIN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -X POST http://127.0.0.1:8001/api/v1/auth/login \
+              -H "Content-Type: application/json" \
+              -d '{"email":"deploy-probe@example.invalid","password":"x"}' || echo "000")
+            if [ "$LOGIN_STATUS" != "401" ]; then
+              echo "ERROR: login probe returned HTTP $LOGIN_STATUS (expected 401)."
+              $PM2_PATH logs mugogo-api --lines 80 --nostream || true
+              exit 1
+            fi
+            echo "--> Login probe passed (HTTP 401 for unknown user)"

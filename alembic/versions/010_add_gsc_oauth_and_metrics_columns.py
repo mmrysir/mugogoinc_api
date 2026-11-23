@@ -1,7 +1,7 @@
 """Add GSC OAuth token and metrics columns to business_units
 
-Revision ID: 010_add_gsc_oauth_and_metrics_columns
-Revises: 009_add_gbp_and_digital_footprint_columns
+Revision ID: 010_gsc_oauth_metrics
+Revises: 009_gbp_footprint_columns
 Create Date: 2026-10-13
 
 Context
@@ -20,36 +20,42 @@ Adds the three columns required for the GSC OAuth handshake and telemetry cache:
 All columns are nullable so existing rows are unaffected.
 """
 from alembic import op
+from app.core.schema_sync import (
+    add_column_if_missing,
+    alter_column_if_exists,
+    create_index_if_missing,
+    create_table_if_missing,
+)
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "010_add_gsc_oauth_and_metrics_columns"
-down_revision = "009_add_gbp_and_digital_footprint_columns"
+revision = "010_gsc_oauth_metrics"
+down_revision = "009_gbp_footprint_columns"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
     # 1. gsc_site_url (canonical property identifier for token refresh)
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("gsc_site_url", sa.String(length=512), nullable=True),
     )
 
     # 2. gsc_access_token (short-lived; stored encrypted)
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("gsc_access_token", sa.Text(), nullable=True),
     )
 
     # 3. gsc_refresh_token (long-lived; stored encrypted)
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("gsc_refresh_token", sa.Text(), nullable=True),
     )
 
     # 4. gsc_metrics (JSONB telemetry cache)
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column(
             "gsc_metrics",

@@ -6,6 +6,12 @@ Create Date: 2026-10-01
 
 """
 from alembic import op
+from app.core.schema_sync import (
+    add_column_if_missing,
+    alter_column_if_exists,
+    create_index_if_missing,
+    create_table_if_missing,
+)
 import sqlalchemy as sa
 
 revision = '002_add_is_approved_to_users'
@@ -16,7 +22,7 @@ depends_on = None
 
 def upgrade() -> None:
     # Add is_approved column — defaults to False for new agents
-    op.add_column('users', sa.Column('is_approved', sa.Boolean(), nullable=False, server_default='false'))
+    add_column_if_missing('users', sa.Column('is_approved', sa.Boolean(), nullable=False, server_default='false'))
 
     # Automatically approve all existing non-AGENT users (admins, managers already in system)
     op.execute(

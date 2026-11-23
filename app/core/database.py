@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
 
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -12,6 +13,13 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
+from app.core.schema_sync import repair_schema_drift
+
+logger = logging.getLogger("mugogo.database")
+
+# Advisory lock key used to serialise schema bootstrap across the multiple
+# uvicorn workers (and across concurrent deploys).
+_SCHEMA_LOCK_KEY = 0x4D55474F  # "MUGO"
 
 
 class Base(DeclarativeBase):
@@ -55,37 +63,24 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def create_all_tables() -> None:
-    """Create all tables on first boot and repair known column drift.
+    """Create missing tables and repair column drift on every boot.
 
     ``Base.metadata.create_all`` only creates missing tables; it never adds
-    columns to tables that already exist. Since this project predates Alembic,
-    we perform a lightweight, idempotent column-drift repair for existing
-    databases so that ORM queries and the physical schema stay in sync.
+    columns to tables that already exist.  ``repair_schema_drift`` closes that
+    gap so the physical schema always matches the ORM.
+
+    A PostgreSQL transaction-scoped advisory lock serialises this work across
+    uvicorn workers, preventing concurrent ``ALTER TABLE`` races.
     """
-    from app.models import organization, business_unit, lead, user, post  # noqa: F401
+    # Import the package (not individual modules) so *every* model is
+    # registered on ``Base.metadata`` before we diff it against the database.
+    import app.models  # noqa: F401
 
     async with engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            await conn.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": _SCHEMA_LOCK_KEY},
+            )
         await conn.run_sync(Base.metadata.create_all)
-        await conn.run_sync(_repair_schema_drift)
-
-
-def _repair_schema_drift(sync_conn) -> None:
-    """Add columns that the ORM expects but that are missing in older DB files."""
-    inspector = inspect(sync_conn)
-
-    if "organizations" in inspector.get_table_names():
-        existing_columns = {c["name"] for c in inspector.get_columns("organizations")}
-        if "created_by_id" not in existing_columns:
-            sync_conn.execute(
-                text(
-                    "ALTER TABLE organizations "
-                    "ADD COLUMN created_by_id VARCHAR(36) REFERENCES users(id)"
-                )
-            )
-        if "api_key" not in existing_columns:
-            sync_conn.execute(
-                text(
-                    "ALTER TABLE organizations "
-                    "ADD COLUMN api_key VARCHAR(255)"
-                )
-            )
+        await conn.run_sync(repair_schema_drift, Base.metadata)

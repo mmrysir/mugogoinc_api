@@ -6,6 +6,12 @@ Create Date: 2026-10-01
 
 """
 from alembic import op
+from app.core.schema_sync import (
+    add_column_if_missing,
+    alter_column_if_exists,
+    create_index_if_missing,
+    create_table_if_missing,
+)
 import sqlalchemy as sa
 
 revision = '003_add_is_frozen_to_users'
@@ -15,7 +21,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column('users', sa.Column('is_frozen', sa.Boolean(), nullable=False, server_default='false'))
+    add_column_if_missing('users', sa.Column('is_frozen', sa.Boolean(), nullable=False, server_default='false'))
 
 
 def downgrade() -> None:

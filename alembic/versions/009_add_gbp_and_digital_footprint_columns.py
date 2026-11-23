@@ -1,14 +1,20 @@
 """Add GBP and digital footprint columns to business_units
 
-Revision ID: 009_add_gbp_and_digital_footprint_columns
+Revision ID: 009_gbp_footprint_columns
 Revises: 008_add_organization_slug
 Create Date: 2026-10-12
 """
 from alembic import op
+from app.core.schema_sync import (
+    add_column_if_missing,
+    alter_column_if_exists,
+    create_index_if_missing,
+    create_table_if_missing,
+)
 import sqlalchemy as sa
 
 
-revision = "009_add_gbp_and_digital_footprint_columns"
+revision = "009_gbp_footprint_columns"
 down_revision = "008_add_organization_slug"
 branch_labels = None
 depends_on = None
@@ -16,7 +22,7 @@ depends_on = None
 
 def upgrade() -> None:
     # 1. Expand social_media_links length to 2048
-    op.alter_column(
+    alter_column_if_exists(
         "business_units",
         "social_media_links",
         type_=sa.String(length=2048),
@@ -25,25 +31,25 @@ def upgrade() -> None:
     )
 
     # 2. Add GBP attributes
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("google_business_place_id", sa.String(length=255), nullable=True),
     )
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("google_business_map_url", sa.String(length=1024), nullable=True),
     )
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("google_business_rating", sa.Float(), nullable=True),
     )
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("google_business_review_count", sa.Integer(), nullable=True),
     )
 
     # 3. Add digital footprint metrics
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("digital_footprint_metrics", sa.Text(), nullable=True),
     )

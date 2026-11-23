@@ -6,6 +6,12 @@ Create Date: 2026-09-26 23:20:00
 
 """
 from alembic import op
+from app.core.schema_sync import (
+    add_column_if_missing,
+    alter_column_if_exists,
+    create_index_if_missing,
+    create_table_if_missing,
+)
 import sqlalchemy as sa
 
 revision = '001_initial_postgres_schema'
@@ -16,7 +22,7 @@ depends_on = None
 
 def upgrade() -> None:
     # Users table
-    op.create_table(
+    create_table_if_missing(
         'users',
         sa.Column('id', sa.String(length=36), nullable=False),
         sa.Column('email', sa.String(length=255), nullable=False),
@@ -27,10 +33,10 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint('id'),
     )
-    op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
+    create_index_if_missing(op.f('ix_users_email'), 'users', ['email'], unique=True)
 
     # Organizations table
-    op.create_table(
+    create_table_if_missing(
         'organizations',
         sa.Column('id', sa.String(length=36), nullable=False),
         sa.Column('name', sa.String(length=255), nullable=False),
@@ -43,10 +49,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['created_by_id'], ['users.id'], ondelete='SET NULL'),
         sa.PrimaryKeyConstraint('id'),
     )
-    op.create_index(op.f('ix_organizations_api_key'), 'organizations', ['api_key'], unique=True)
+    create_index_if_missing(op.f('ix_organizations_api_key'), 'organizations', ['api_key'], unique=True)
 
     # Business Units table
-    op.create_table(
+    create_table_if_missing(
         'business_units',
         sa.Column('id', sa.String(length=36), nullable=False),
         sa.Column('organization_id', sa.String(length=36), nullable=False),
@@ -59,10 +65,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
     )
-    op.create_index(op.f('ix_business_units_organization_id'), 'business_units', ['organization_id'], unique=False)
+    create_index_if_missing(op.f('ix_business_units_organization_id'), 'business_units', ['organization_id'], unique=False)
 
     # Leads table
-    op.create_table(
+    create_table_if_missing(
         'leads',
         sa.Column('id', sa.String(length=36), nullable=False),
         sa.Column('business_unit_id', sa.String(length=36), nullable=False),
@@ -87,14 +93,14 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['business_unit_id'], ['business_units.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
     )
-    op.create_index(op.f('ix_leads_business_unit_id'), 'leads', ['business_unit_id'], unique=False)
-    op.create_index(op.f('ix_leads_created_at'), 'leads', ['created_at'], unique=False)
-    op.create_index(op.f('ix_leads_dedupe_hash'), 'leads', ['dedupe_hash'], unique=False)
-    op.create_index(op.f('ix_leads_fbclid'), 'leads', ['fbclid'], unique=False)
-    op.create_index(op.f('ix_leads_gclid'), 'leads', ['gclid'], unique=False)
+    create_index_if_missing(op.f('ix_leads_business_unit_id'), 'leads', ['business_unit_id'], unique=False)
+    create_index_if_missing(op.f('ix_leads_created_at'), 'leads', ['created_at'], unique=False)
+    create_index_if_missing(op.f('ix_leads_dedupe_hash'), 'leads', ['dedupe_hash'], unique=False)
+    create_index_if_missing(op.f('ix_leads_fbclid'), 'leads', ['fbclid'], unique=False)
+    create_index_if_missing(op.f('ix_leads_gclid'), 'leads', ['gclid'], unique=False)
 
     # Abandoned Leads table
-    op.create_table(
+    create_table_if_missing(
         'abandoned_leads',
         sa.Column('id', sa.String(length=36), nullable=False),
         sa.Column('business_unit_id', sa.String(length=36), nullable=False),
@@ -108,10 +114,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['business_unit_id'], ['business_units.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
     )
-    op.create_index(op.f('ix_abandoned_leads_business_unit_id'), 'abandoned_leads', ['business_unit_id'], unique=False)
+    create_index_if_missing(op.f('ix_abandoned_leads_business_unit_id'), 'abandoned_leads', ['business_unit_id'], unique=False)
 
     # Posts table (Subdirectory Blogging Hub)
-    op.create_table(
+    create_table_if_missing(
         'posts',
         sa.Column('id', sa.String(length=36), nullable=False),
         sa.Column('organization_id', sa.String(length=36), nullable=True),
@@ -134,11 +140,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ondelete='SET NULL'),
         sa.PrimaryKeyConstraint('id'),
     )
-    op.create_index(op.f('ix_posts_business_unit_id'), 'posts', ['business_unit_id'], unique=False)
-    op.create_index(op.f('ix_posts_organization_id'), 'posts', ['organization_id'], unique=False)
-    op.create_index(op.f('ix_posts_published_at'), 'posts', ['published_at'], unique=False)
-    op.create_index(op.f('ix_posts_slug'), 'posts', ['slug'], unique=True)
-    op.create_index(op.f('ix_posts_status'), 'posts', ['status'], unique=False)
+    create_index_if_missing(op.f('ix_posts_business_unit_id'), 'posts', ['business_unit_id'], unique=False)
+    create_index_if_missing(op.f('ix_posts_organization_id'), 'posts', ['organization_id'], unique=False)
+    create_index_if_missing(op.f('ix_posts_published_at'), 'posts', ['published_at'], unique=False)
+    create_index_if_missing(op.f('ix_posts_slug'), 'posts', ['slug'], unique=True)
+    create_index_if_missing(op.f('ix_posts_status'), 'posts', ['status'], unique=False)
 
 
 def downgrade() -> None:

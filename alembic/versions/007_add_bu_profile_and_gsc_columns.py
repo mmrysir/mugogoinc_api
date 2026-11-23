@@ -1,6 +1,6 @@
 """Add BU profile columns and google_search_console_site
 
-Revision ID: 007_add_bu_profile_and_gsc_columns
+Revision ID: 007_bu_profile_gsc_columns
 Revises: 006
 Create Date: 2026-10-07
 
@@ -34,9 +34,15 @@ receive NULL — which is correct since these are optional profile fields.
 Downgrade restores the table to the migration-001 baseline.
 """
 from alembic import op
+from app.core.schema_sync import (
+    add_column_if_missing,
+    alter_column_if_exists,
+    create_index_if_missing,
+    create_table_if_missing,
+)
 import sqlalchemy as sa
 
-revision = "007_add_bu_profile_and_gsc_columns"
+revision = "007_bu_profile_gsc_columns"
 down_revision = "006"
 branch_labels = None
 depends_on = None
@@ -44,25 +50,25 @@ depends_on = None
 
 def upgrade() -> None:
     # ── 1. primary_url ────────────────────────────────────────────────────────
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("primary_url", sa.String(length=512), nullable=True),
     )
 
     # ── 2. social_media_links ─────────────────────────────────────────────────
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("social_media_links", sa.String(length=1024), nullable=True),
     )
 
     # ── 3. google_ads_customer_id ─────────────────────────────────────────────
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("google_ads_customer_id", sa.String(length=50), nullable=True),
     )
 
     # ── 4. google_search_console_site (NEW — D1 decision) ────────────────────
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column("google_search_console_site", sa.String(length=512), nullable=True),
     )
@@ -70,7 +76,7 @@ def upgrade() -> None:
     # ── 5. target_country ─────────────────────────────────────────────────────
     # Default "2404" (Kenya) for new rows; NULL for existing rows is acceptable
     # since the Keyword Planner service already falls back to "2404" in code.
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column(
             "target_country",
@@ -82,7 +88,7 @@ def upgrade() -> None:
 
     # ── 6. target_language ────────────────────────────────────────────────────
     # Default "1000" (English) for new rows; same fallback rationale as above.
-    op.add_column(
+    add_column_if_missing(
         "business_units",
         sa.Column(
             "target_language",
