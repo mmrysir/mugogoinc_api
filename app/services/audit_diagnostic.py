@@ -188,31 +188,38 @@ class WebsiteAuditScanner:
         return robots_ok, sitemap_ok, sitemap_in_robots
 
     async def _fetch_pagespeed_metrics(self, client: httpx.AsyncClient, url: str) -> dict:
-        if not self.api_key:
-            return {}
-        psi_endpoint = (
+        # Try authenticated first (higher quota), fall back to public unauthenticated.
+        urls_to_try = []
+        if self.api_key:
+            urls_to_try.append(
+                f"https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
+                f"?url={quote_plus(url)}&strategy=mobile&category=performance&category=seo&key={self.api_key}"
+            )
+        urls_to_try.append(
             f"https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
-            f"?url={quote_plus(url)}&strategy=mobile&category=performance&category=seo&key={self.api_key}"
+            f"?url={quote_plus(url)}&strategy=mobile&category=performance&category=seo"
         )
-        try:
-            res = await client.get(psi_endpoint, timeout=35.0)
-            if res.status_code == 200:
-                data = res.json()
-                lh = data.get("lighthouseResult", {})
-                cats = lh.get("categories", {})
-                audits = lh.get("audits", {})
-                perf = cats.get("performance", {}).get("score")
-                seo = cats.get("seo", {}).get("score")
-                return {
-                    "mobile_score": int(round(perf * 100)) if perf is not None else None,
-                    "lh_seo_score": int(round(seo * 100)) if seo is not None else None,
-                    "lcp": audits.get("largest-contentful-paint", {}).get("displayValue"),
-                    "fcp": audits.get("first-contentful-paint", {}).get("displayValue"),
-                }
-            else:
-                logger.warning(f"PageSpeed API returned {res.status_code}: {res.text[:300]}")
-        except Exception as e:
-            logger.warning(f"PageSpeed API error: {e}")
+
+        for psi_endpoint in urls_to_try:
+            try:
+                res = await client.get(psi_endpoint, timeout=35.0)
+                if res.status_code == 200:
+                    data = res.json()
+                    lh = data.get("lighthouseResult", {})
+                    cats = lh.get("categories", {})
+                    audits = lh.get("audits", {})
+                    perf = cats.get("performance", {}).get("score")
+                    seo = cats.get("seo", {}).get("score")
+                    return {
+                        "mobile_score": int(round(perf * 100)) if perf is not None else None,
+                        "lh_seo_score": int(round(seo * 100)) if seo is not None else None,
+                        "lcp": audits.get("largest-contentful-paint", {}).get("displayValue"),
+                        "fcp": audits.get("first-contentful-paint", {}).get("displayValue"),
+                    }
+                else:
+                    logger.warning(f"PageSpeed API returned {res.status_code}: {res.text[:300]}")
+            except Exception as e:
+                logger.warning(f"PageSpeed API error: {e}")
         return {}
 
     # -------------------------------------------------------------------------
