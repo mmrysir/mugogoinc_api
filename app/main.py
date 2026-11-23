@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.database import create_all_tables
 from app.routers import organizations, business_units, leads, ingest, stats
 from app.routers import auth, users, blog, marketing, onboarding, reporting, public_blogs
-from app.routers import gsc, audit
+from app.routers import gsc, audit, business_unit_audits
 
 logging.basicConfig(
     level=logging.INFO,
@@ -95,6 +95,7 @@ app.include_router(reporting.router, prefix=API_PREFIX)
 app.include_router(gsc.router, prefix=API_PREFIX)
 app.include_router(gsc.public_router, prefix=API_PREFIX)
 app.include_router(audit.router, prefix=API_PREFIX)
+app.include_router(business_unit_audits.router)
 # 
 # # Blog Routers (Mounted with public & internal paths)
 app.include_router(blog.public_router)

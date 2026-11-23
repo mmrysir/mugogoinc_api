@@ -40,6 +40,11 @@ class BusinessUnit(Base):
     owner_whatsapp_number: Mapped[str] = mapped_column(String(20), nullable=False)
     owner_email: Mapped[str] = mapped_column(String(255), nullable=False)
     primary_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    # ── Audit profile (additive, nullable) ──────────────────────────────────
+    website_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    industry: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     social_media_links: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
     google_ads_customer_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     google_search_console_site: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)

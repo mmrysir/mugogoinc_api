@@ -37,6 +37,11 @@ class BusinessUnitUpdate(BaseModel):
     digital_footprint_metrics: Optional[Union[Dict[str, Any], str]] = None
     target_country: Optional[str] = Field(None, max_length=10)
     target_language: Optional[str] = Field(None, max_length=10)
+    # Audit profile fields (additive, nullable)
+    website_url: Optional[str] = Field(None, max_length=512)
+    city: Optional[str] = Field(None, max_length=255)
+    industry: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=50)
     # GSC OAuth fields (write-only; tokens are never returned in responses)
     gsc_site_url: Optional[str] = Field(None, max_length=512)
 
@@ -54,6 +59,10 @@ class BusinessUnitResponse(BaseModel):
     owner_whatsapp_number: str
     owner_email: str
     primary_url: Optional[str] = None
+    website_url: Optional[str] = None
+    city: Optional[str] = None
+    industry: Optional[str] = None
+    phone: Optional[str] = None
     social_media_links: Optional[str] = None
     google_ads_customer_id: Optional[str] = None
     google_search_console_site: Optional[str] = None
@@ -101,6 +110,10 @@ class BusinessUnitResponse(BaseModel):
                 "owner_whatsapp_number": data.owner_whatsapp_number,
                 "owner_email": data.owner_email,
                 "primary_url": getattr(data, "primary_url", None),
+                "website_url": getattr(data, "website_url", None),
+                "city": getattr(data, "city", None),
+                "industry": getattr(data, "industry", None),
+                "phone": getattr(data, "phone", None),
                 "social_media_links": getattr(data, "social_media_links", None),
                 "google_ads_customer_id": getattr(data, "google_ads_customer_id", None),
                 "google_search_console_site": getattr(data, "google_search_console_site", None),
