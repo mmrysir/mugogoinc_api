@@ -162,7 +162,7 @@ class WebsiteAuditScanner:
         }
 
     # -------------------------------------------------------------------------
-    # Network Probes (Robots/Sitemap, PageSpeed Insights, Google Places)
+    # Network Probes (Robots/Sitemap, PageSpeed Insights, Google Places New v1)
     # -------------------------------------------------------------------------
     async def _check_robots_and_sitemap(self, client: httpx.AsyncClient):
         robots_ok = False
@@ -210,10 +210,42 @@ class WebsiteAuditScanner:
                     "fcp": audits.get("first-contentful-paint", {}).get("displayValue"),
                 }
             else:
-                logger.warning(f"PageSpeed API returned {res.status_code}: {res.text[:200]}")
+                logger.warning(f"PageSpeed API returned {res.status_code}: {res.text[:300]}")
         except Exception as e:
             logger.warning(f"PageSpeed API error: {e}")
         return {}
+
+    # -------------------------------------------------------------------------
+    # Places API (New) v1 — searchText
+    # -------------------------------------------------------------------------
+    PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
+    PLACES_FIELD_MASK = (
+        "places.id,places.displayName,places.formattedAddress,"
+        "places.nationalPhoneNumber,places.internationalPhoneNumber,"
+        "places.websiteUri,places.rating,places.userRatingCount,"
+        "places.businessStatus,places.regularOpeningHours,places.photos,"
+        "places.reviews,places.primaryTypeDisplayName"
+    )
+    PLACES_COMPETITOR_FIELD_MASK = "places.id,places.displayName,places.rating,places.userRatingCount"
+
+    async def _places_text_search(self, client: httpx.AsyncClient, text_query: str, field_mask: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Run a Places API (New) searchText request. Returns the list of places or []."""
+        if not self.api_key or not text_query:
+            return []
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": self.api_key,
+            "X-Goog-FieldMask": field_mask,
+        }
+        body = {"textQuery": text_query, "maxResultCount": max_results}
+        try:
+            res = await client.post(self.PLACES_TEXT_SEARCH_URL, headers=headers, json=body, timeout=15.0)
+            if res.status_code == 200:
+                return res.json().get("places", []) or []
+            logger.warning(f"Places API (New) returned {res.status_code}: {res.text[:300]}")
+        except Exception as e:
+            logger.warning(f"Places API (New) error: {e}")
+        return []
 
     async def _fetch_google_places_and_competitors(self, client: httpx.AsyncClient, page_title: str) -> dict:
         if not self.api_key:
@@ -235,28 +267,19 @@ class WebsiteAuditScanner:
         for query in candidates:
             if not query:
                 continue
-            search_url = (
-                f"https://maps.googleapis.com/maps/api/place/textsearch/json"
-                f"?query={quote_plus(query)}&key={self.api_key}"
-            )
-            try:
-                res = await client.get(search_url, timeout=12.0)
-                if res.status_code == 200:
-                    results = res.json().get("results", [])
-                    if results:
-                        # Inspect top 3 candidates via Place Details to confirm website match
-                        for cand in results[:3]:
-                            details = await self._get_place_details(client, cand["place_id"])
-                            cand_site = (details.get("website") or "").lower()
-                            if self.clean_host and self.clean_host in cand_site:
-                                matched_place = details
-                                break
-                        if not matched_place:
-                            matched_place = await self._get_place_details(client, results[0]["place_id"])
-                        if matched_place:
-                            break
-            except Exception as e:
-                logger.warning(f"Places search error for '{query}': {e}")
+            places = await self._places_text_search(client, query, self.PLACES_FIELD_MASK, max_results=5)
+            if not places:
+                continue
+            # Inspect top 3 candidates to confirm website match
+            for cand in places[:3]:
+                cand_site = (cand.get("websiteUri") or "").lower()
+                if self.clean_host and self.clean_host in cand_site:
+                    matched_place = cand
+                    break
+            if not matched_place:
+                matched_place = places[0]
+            if matched_place:
+                break
 
         # Competitor Map Pack Search using Industry + Primary City
         competitors = []
@@ -264,30 +287,21 @@ class WebsiteAuditScanner:
         median_reviews = None
         if self.primary_city or self.industry:
             comp_query = f"{self.industry} in {self.primary_city}".strip()
-            comp_url = (
-                f"https://maps.googleapis.com/maps/api/place/textsearch/json"
-                f"?query={quote_plus(comp_query)}&key={self.api_key}"
-            )
-            try:
-                c_res = await client.get(comp_url, timeout=12.0)
-                if c_res.status_code == 200:
-                    c_results = c_res.json().get("results", [])
-                    matched_id = matched_place.get("place_id") if matched_place else None
-                    for idx, item in enumerate(c_results, start=1):
-                        if matched_id and item.get("place_id") == matched_id:
-                            maps_rank = idx
-                        elif len(competitors) < 5:
-                            competitors.append({
-                                "name": item.get("name"),
-                                "rating": item.get("rating", 0),
-                                "reviews": item.get("user_ratings_total", 0),
-                                "address": item.get("formatted_address", ""),
-                            })
-                    review_counts = [c["reviews"] for c in competitors if c.get("reviews") is not None]
-                    if review_counts:
-                        median_reviews = int(statistics.median(review_counts))
-            except Exception as e:
-                logger.warning(f"Competitor search error: {e}")
+            comp_places = await self._places_text_search(client, comp_query, self.PLACES_COMPETITOR_FIELD_MASK, max_results=6)
+            matched_id = matched_place.get("id") if matched_place else None
+            for idx, item in enumerate(comp_places, start=1):
+                if matched_id and item.get("id") == matched_id:
+                    maps_rank = idx
+                elif len(competitors) < 5:
+                    competitors.append({
+                        "name": item.get("displayName", {}).get("text") or item.get("name"),
+                        "rating": item.get("rating", 0),
+                        "reviews": item.get("userRatingCount", 0),
+                        "address": item.get("formattedAddress", ""),
+                    })
+            review_counts = [c["reviews"] for c in competitors if c.get("reviews") is not None]
+            if review_counts:
+                median_reviews = int(statistics.median(review_counts))
 
         if not matched_place:
             return {
@@ -297,44 +311,44 @@ class WebsiteAuditScanner:
                 "maps_rank": None,
             }
 
-        reviews = matched_place.get("reviews", [])
+        # Parse reviews for velocity
+        reviews = matched_place.get("reviews", []) or []
         now_ts = datetime.now(timezone.utc).timestamp()
-        recent_90d = sum(1 for r in reviews if (now_ts - r.get("time", 0)) <= 90 * 86400)
-        negative_recent = sum(1 for r in reviews if r.get("rating", 5) <= 3)
+        recent_90d = sum(1 for r in reviews if self._review_age_days(r, now_ts) <= 90)
+        negative_recent = sum(1 for r in reviews if (r.get("rating") or 5) <= 3)
 
         return {
             "found": True,
             "rating": matched_place.get("rating", 0.0),
-            "review_count": matched_place.get("user_ratings_total", 0),
+            "review_count": matched_place.get("userRatingCount", 0),
             "competitor_median_reviews": median_reviews,
             "maps_rank": maps_rank,
             "competitors": competitors,
             "recent_90d_reviews": recent_90d,
             "negative_recent_reviews": negative_recent,
             "profile": {
-                "name": matched_place.get("name"),
-                "status": matched_place.get("business_status", "OPERATIONAL"),
-                "website": matched_place.get("website", ""),
-                "phone": matched_place.get("formatted_phone_number", ""),
-                "has_hours": bool(matched_place.get("opening_hours")),
+                "name": matched_place.get("displayName", {}).get("text") or matched_place.get("name"),
+                "status": matched_place.get("businessStatus", "OPERATIONAL"),
+                "website": matched_place.get("websiteUri", ""),
+                "phone": matched_place.get("internationalPhoneNumber") or matched_place.get("nationalPhoneNumber", ""),
+                "has_hours": bool(matched_place.get("regularOpeningHours")),
                 "photo_count": len(matched_place.get("photos", [])),
-                "types": matched_place.get("types", []),
+                "types": [matched_place.get("primaryTypeDisplayName", {}).get("text")] if matched_place.get("primaryTypeDisplayName") else [],
             },
+            "reviews": reviews,
         }
 
-    async def _get_place_details(self, client: httpx.AsyncClient, place_id: str) -> dict:
-        fields = (
-            "place_id,name,rating,user_ratings_total,formatted_phone_number,"
-            "website,opening_hours,photos,reviews,types,business_status"
-        )
-        url = (
-            f"https://maps.googleapis.com/maps/api/place/details/json"
-            f"?place_id={place_id}&fields={fields}&key={self.api_key}"
-        )
-        res = await client.get(url, timeout=10.0)
-        if res.status_code == 200:
-            return res.json().get("result", {})
-        return {}
+    def _review_age_days(self, review: dict, now_ts: float) -> int:
+        """Return age in days of a review based on publishTime (RFC3339)."""
+        pt = review.get("publishTime")
+        if not pt:
+            return 9999
+        try:
+            # Handle RFC3339 with Z
+            dt = datetime.fromisoformat(pt.replace("Z", "+00:00"))
+            return int((now_ts - dt.timestamp()) / 86400)
+        except Exception:
+            return 9999
 
     # -------------------------------------------------------------------------
     # Pillar Evaluators (35+ Checks)
@@ -752,7 +766,3 @@ class WebsiteAuditScanner:
                 "details": f"Could not connect to {self.target_url}: {error_msg}",
             }],
         }
-
-
-# Backwards-compat shim for any callers expecting the old method name
-WebsiteAuditScanner.run_full_diagnostic  # noqa: B018
