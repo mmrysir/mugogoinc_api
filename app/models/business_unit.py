@@ -52,7 +52,7 @@ class BusinessUnit(Base):
     google_business_map_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     google_business_rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     google_business_review_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    digital_footprint_metrics: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    digital_footprint_metrics: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=dict)
 
     # ── Google Search Console OAuth & Telemetry ───────────────────────────────
     gsc_site_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
