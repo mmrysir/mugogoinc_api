@@ -1,6 +1,6 @@
 """Add audit profile fields to business_units and tenant scoping to audit_leads
 
-Revision ID: 013_audit_profile_and_tenant_scoping
+Revision ID: 013_audit_profile_tenant
 Revises: 012_add_audit_leads
 Create Date: 2026-11-23
 
@@ -20,7 +20,7 @@ from app.core.schema_sync import (
 )
 import sqlalchemy as sa
 
-revision = "013_audit_profile_and_tenant_scoping"
+revision = "013_audit_profile_tenant"
 down_revision = "012_add_audit_leads"
 branch_labels = None
 depends_on = None
