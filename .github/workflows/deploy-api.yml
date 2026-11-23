@@ -157,10 +157,6 @@ jobs:
             fi
             echo "--> Login probe passed (HTTP 401 for unknown user)"
 
-            # ── Create initial superuser (one-time, non-fatal if exists) ──
-            echo "--> Ensuring superuser exists"
-            PYTHONPATH=. python scripts/create_superuser.py --email admin@mugogoinc.com --name "Admin User" --password "AdminPass123!" 2>&1 || true
-
             # ── Google OAuth diagnostic (non-fatal) ──────────────────────
             # Verifies the Google Ads refresh token and any stored per-BU
             # GSC refresh token against Google's token endpoint. Never
