@@ -20,6 +20,7 @@ from app.models.audit import AuditLead
 from app.schemas.audit import (
     AuditCheck,
     AuditFinding,
+    AuditLeadResponse,
     AuditPillar,
     AuditReport,
     AuditRunRequest,
