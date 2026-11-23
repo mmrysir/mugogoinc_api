@@ -24,6 +24,7 @@ from app.schemas.audit import (
     AuditReport,
     AuditRunRequest,
     AuditRunResponse,
+    AuditScoreSummary,
 )
 from app.services.audit_diagnostic import WebsiteAuditScanner
 
