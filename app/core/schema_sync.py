@@ -80,7 +80,7 @@ def repair_schema_drift(sync_conn, metadata) -> None:
     repaired: list[str] = []
     failed: list[str] = []
 
-    for table in metadata.sorted_tables:
+    for table in metadata.tables.values():
         if table.name not in existing_tables:
             continue
 

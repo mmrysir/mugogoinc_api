@@ -88,6 +88,15 @@ jobs:
             PYTHONPATH=. python -c "import asyncio; from app.core.database import create_all_tables; asyncio.run(create_all_tables())"
 
             # ── 2. Apply Alembic migrations (idempotent) ──────────────────
+            echo "--> Checking for stale/untracked migration files"
+            git ls-files --others --exclude-standard alembic/versions || true
+            # Untracked migrations on the server are never part of the
+            # deployed revision graph; remove them (and stale .pyc files)
+            # so 'alembic upgrade head' cannot see phantom heads.
+            git clean -fdxq alembic/versions
+            echo "--> Alembic heads:"
+            PYTHONPATH=. alembic heads
+
             echo "--> Running Alembic Database Migrations"
             PYTHONPATH=. alembic upgrade head
             PYTHONPATH=. alembic current
