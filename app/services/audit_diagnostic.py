@@ -1,14 +1,13 @@
 """Automated website marketing diagnostic service.
 
 Runs the multi-pillar digital marketing health scan used by the public
-"Audit Lead Magnet" feature. Uses async HTTP (httpx) + HTML parsing
-(BeautifulSoup) against a custom bot user agent.
+"Audit Lead Magnet" feature.
 
 Pillars:
   1. Technical SEO          — HTTP status, <title>, meta description
-  2. Tracking & Ads         — GA4 / GTM / Google Ads / Meta Pixel tags
+  2. Tracking & Ads         — GA / GTM / UA / Google Ads / Meta Pixel
   3. Conversion Funnels     — <form> count, WhatsApp / tel: integration
-  4. Crawlability (Local)  — robots.txt + sitemap.xml reachability
+  4. Robots & Sitemap       — robots.txt + sitemap.xml reachability
 """
 
 from __future__ import annotations
@@ -23,177 +22,203 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger("mugogo.audit")
 
-BOT_USER_AGENT = "MugogoEngineBot/1.0"
-REQUEST_TIMEOUT_SECONDS = 15.0
-
-GA_PATTERN = re.compile(r"gtag\(|googletagmanager\.com|GTM-[A-Z0-9]+|G-[A-Z0-9]{6,}|AW-[A-Z0-9]+", re.IGNORECASE)
-META_PIXEL_PATTERN = re.compile(r"fbq\(|connect\.facebook\.net", re.IGNORECASE)
-WHATSAPP_PATTERN = re.compile(r"wa\.me|whatsapp\.com|href=[\"']tel:", re.IGNORECASE)
-
 
 class WebsiteAuditScanner:
-    """Async website scanner producing pillar-level marketing health scores."""
+    def __init__(self, target_url: str):
+        if not target_url.startswith("http://") and not target_url.startswith("https://"):
+            self.target_url = f"https://{target_url}"
+        else:
+            self.target_url = target_url
 
-    async def _fetch(self, url: str) -> Tuple[Optional[int], str, str, Optional[str]]:
-        """Fetch a page. Returns (status_code, html, final_url, error)."""
-        try:
-            async with httpx.AsyncClient(
-                timeout=REQUEST_TIMEOUT_SECONDS,
-                follow_redirects=True,
-                headers={"User-Agent": BOT_USER_AGENT},
-            ) as client:
-                resp = await client.get(url)
-                return resp.status_code, resp.text or "", str(resp.url), None
-        except Exception as exc:  # noqa: BLE001 - diagnostic must not crash the API
-            logger.warning("[AUDIT] Fetch failed for %s: %s", url, exc)
-            return None, "", url, str(exc)
+        self.headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
 
-    async def _fetch_probe(self, base_url: str, path: str) -> Tuple[Optional[int], str]:
-        try:
-            async with httpx.AsyncClient(
-                timeout=10.0,
-                follow_redirects=True,
-                headers={"User-Agent": BOT_USER_AGENT},
-            ) as client:
-                resp = await client.get(urljoin(base_url, path))
-                return resp.status_code, ""
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[AUDIT] Probe failed for %s%s: %s", base_url, path, exc)
-            return None, str(exc)
+    async def run_full_diagnostic(self) -> dict:
+        findings: List[Dict[str, Any]] = []
+        html_content = ""
+        status_code = 0
 
-    # ── Pillar checks ──────────────────────────────────────────────────────────
-
-    async def _check_technical_seo(self, url: str, status_code: Optional[int], html: str) -> Dict[str, Any]:
-        checks: List[Dict[str, Any]] = []
-        checks.append(
-            {
-                "name": "http_status_200",
-                "passed": status_code == 200,
-                "detail": f"HTTP {status_code}" if status_code else "Request failed",
-            }
-        )
-        soup = BeautifulSoup(html or "", "html.parser")
-        title = soup.find("title")
-        checks.append(
-            {
-                "name": "title_tag_present",
-                "passed": bool(title and title.get_text(strip=True)),
-                "detail": f"Title: {title.get_text(strip=True)[:60]}" if title else "No <title> tag",
-            }
-        )
-        meta = soup.find("meta", attrs={"name": "description"})
-        checks.append(
-            {
-                "name": "meta_description_present",
-                "passed": bool(meta and (meta.get("content") or "").strip()),
-                "detail": "Meta description found" if meta else "No meta description",
-            }
-        )
-        score = round(100.0 * sum(1 for c in checks if c["passed"]) / len(checks), 2) if checks else 0.0
-        return {"name": "Technical SEO", "score": score, "checks": checks}
-
-    async def _check_tracking_ads(self, html: str) -> Dict[str, Any]:
-        checks: List[Dict[str, Any]] = [
-            {"name": "ga4_gtag_script", "passed": bool(GA_PATTERN.search(html or "")), "detail": "GA4/gtag/GTM detected"},
-            {"name": "google_ads_tag", "passed": bool(GA_PATTERN.search(html or "")), "detail": "AW-/G- Google Ads tag detected"},
-            {"name": "meta_pixel", "passed": bool(META_PIXEL_PATTERN.search(html or "")), "detail": "Meta Pixel (fbq) detected"},
-        ]
-        # GA4 / GTM / Google Ads all live under one combined tag check to stay accurate.
-        checks = [
-            {
-                "name": "ga4_gtm_google_ads",
-                "passed": bool(GA_PATTERN.search(html or "")),
-                "detail": "GA4 / GTM / Google Ads tag found",
-            },
-            {
-                "name": "meta_pixel",
-                "passed": bool(META_PIXEL_PATTERN.search(html or "")),
-                "detail": "Meta Pixel (fbq) found",
-            },
-        ]
-        score = round(100.0 * sum(1 for c in checks if c["passed"]) / len(checks), 2) if checks else 0.0
-        return {"name": "Tracking & Ads", "score": score, "checks": checks}
-
-    async def _check_conversion_funnels(self, html: str) -> Dict[str, Any]:
-        soup = BeautifulSoup(html or "", "html.parser")
-        forms = soup.find_all("form")
-        wa = WHATSAPP_PATTERN.search(html or "")
-        tel = 'href="tel:' in (html or "") or "href='tel:" in (html or "")
-        checks: List[Dict[str, Any]] = [
-            {
-                "name": "contact_forms_present",
-                "passed": len(forms) > 0,
-                "detail": f"{len(forms)} <form> element(s) found",
-            },
-            {
-                "name": "whatsapp_or_tel_contact",
-                "passed": bool(wa or tel),
-                "detail": "WhatsApp / direct tel: contact integration found" if (wa or tel) else "No WhatsApp / tel: contact channel",
-            },
-        ]
-        score = round(100.0 * sum(1 for c in checks if c["passed"]) / len(checks), 2) if checks else 0.0
-        return {"name": "Conversion Funnels", "score": score, "checks": checks}
-
-    async def _check_crawlability(self, base_url: str) -> Dict[str, Any]:
-        robots_status, _ = await self._fetch_probe(base_url, "/robots.txt")
-        sitemap_status, _ = await self._fetch_probe(base_url, "/sitemap.xml")
-        checks: List[Dict[str, Any]] = [
-            {
-                "name": "robots_txt_reachable",
-                "passed": robots_status == 200,
-                "detail": f"robots.txt → HTTP {robots_status}" if robots_status else "robots.txt unreachable",
-            },
-            {
-                "name": "sitemap_xml_reachable",
-                "passed": sitemap_status == 200,
-                "detail": f"sitemap.xml → HTTP {sitemap_status}" if sitemap_status else "sitemap.xml unreachable",
-            },
-        ]
-        score = round(100.0 * sum(1 for c in checks if c["passed"]) / len(checks), 2) if checks else 0.0
-        return {"name": "Crawlability & Local Presence", "score": score, "checks": checks}
-
-    # ── Full diagnostic ─────────────────────────────────────────────────────────
-
-    async def run_full_diagnostic(self, url: str) -> Dict[str, Any]:
-        status_code, html, final_url, fetch_error = await self._fetch(url)
-
-        pillars: List[Dict[str, Any]] = []
-        if status_code is None:
-            # Page unreachable — surface a failed Technical SEO pillar.
-            pillars.append(
-                {
-                    "name": "Technical SEO",
-                    "score": 0.0,
-                    "checks": [
-                        {"name": "http_status_200", "passed": False, "detail": f"Fetch failed: {fetch_error}"},
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as client:
+            try:
+                response = await client.get(self.target_url, headers=self.headers)
+                html_content = response.text
+                status_code = response.status_code
+            except Exception as e:  # noqa: BLE001 - defensive: never crash the API
+                logger.error(f"Audit fetch error for {self.target_url}: {str(e)}")
+                return {
+                    "url": self.target_url,
+                    "status": "failed",
+                    "error": f"Failed to reach target URL: {str(e)}",
+                    "scores": {"overall": 0, "passed_count": 0, "total_count": 0},
+                    "findings": [
+                        {
+                            "pillar": "Connectivity",
+                            "check": "URL Reachability",
+                            "passed": False,
+                            "details": f"Could not connect to target URL: {str(e)}",
+                        }
                     ],
                 }
+
+            # 1. Technical SEO checks
+            findings.extend(self._check_seo_tags(html_content, status_code))
+
+            # 2. Tracking & Pixels checks
+            findings.extend(self._check_tracking_pixels(html_content))
+
+            # 3. Conversion Funnel checks
+            findings.extend(self._check_conversion_signals(html_content))
+
+            # 4. Robots & Sitemap probe
+            base_domain = self._get_base_domain(self.target_url)
+            robots_ok, sitemap_ok = await self._check_robots_and_sitemap(client, base_domain)
+            findings.append(
+                {
+                    "pillar": "Technical SEO",
+                    "check": "Robots.txt & Sitemap",
+                    "passed": robots_ok or sitemap_ok,
+                    "details": (
+                        f"Robots.txt: {'Found' if robots_ok else 'Missing'}, "
+                        f"Sitemap: {'Found' if sitemap_ok else 'Missing'}"
+                    ),
+                }
             )
-            pillars.append({"name": "Tracking & Ads", "score": 0.0, "checks": []})
-            pillars.append({"name": "Conversion Funnels", "score": 0.0, "checks": []})
-            pillars.append({"name": "Crawlability & Local Presence", "score": 0.0, "checks": []})
-            overall = 0.0
-            return {
-                "url": url,
-                "final_url": final_url,
-                "status_code": None,
-                "fetch_error": fetch_error,
-                "pillars": pillars,
-                "overall_score": 0.0,
-            }
 
-        pillars.append(await self._check_technical_seo(url, status_code, html))
-        pillars.append(await self._check_tracking_ads(html))
-        pillars.append(await self._check_conversion_funnels(html))
-        pillars.append(await self._check_crawlability(final_url or url))
-
-        pillar_scores = [float(p.get("score") or 0.0) for p in pillars]
-        overall = round(sum(pillar_scores) / len(pillar_scores), 2) if pillar_scores else 0.0
+        # Calculate overall score safely
+        total_checks = len(findings)
+        passed_checks = sum(1 for f in findings if f.get("passed", False))
+        overall_score = round((passed_checks / total_checks) * 100, 2) if total_checks > 0 else 0.0
 
         return {
-            "url": url,
-            "final_url": final_url,
-            "status_code": status_code,
-            "pillars": pillars,
-            "overall_score": overall,
+            "url": self.target_url,
+            "status": "success",
+            "scores": {
+                "overall": overall_score,
+                "passed_count": passed_checks,
+                "total_count": total_checks,
+            },
+            "findings": findings,
         }
+
+    def _check_seo_tags(self, html: str, status_code: int) -> list:
+        soup = BeautifulSoup(html or "", "html.parser")
+        findings = []
+
+        findings.append(
+            {
+                "pillar": "Technical SEO",
+                "check": "HTTP Status",
+                "passed": 200 <= status_code < 400,
+                "details": f"Response status code is {status_code}",
+            }
+        )
+
+        title = soup.find("title")
+        has_title = bool(title and title.text.strip())
+        findings.append(
+            {
+                "pillar": "Technical SEO",
+                "check": "Page Title",
+                "passed": has_title,
+                "details": f"Title found: '{title.text.strip()[:50]}...'" if has_title else "Missing or empty page title.",
+            }
+        )
+
+        meta_desc = soup.find("meta", attrs={"name": re.compile("^description$", re.I)})
+        has_desc = bool(meta_desc and meta_desc.get("content"))
+        findings.append(
+            {
+                "pillar": "Technical SEO",
+                "check": "Meta Description",
+                "passed": has_desc,
+                "details": "Meta description is present." if has_desc else "Missing meta description tag.",
+            }
+        )
+
+        return findings
+
+    def _check_tracking_pixels(self, html: str) -> list:
+        findings = []
+        has_ga = bool(re.search(r"(gtag\(|GTM-|UA-|googletagmanager\.com)", html or "", re.I))
+        findings.append(
+            {
+                "pillar": "Tracking & Ads",
+                "check": "Google Analytics / Tag Manager",
+                "passed": has_ga,
+                "details": "Google tracking scripts detected." if has_ga else "No Google Analytics or GTM tags found.",
+            }
+        )
+
+        has_meta_pixel = bool(re.search(r"(fbq\(|connect\.facebook\.net)", html or "", re.I))
+        findings.append(
+            {
+                "pillar": "Tracking & Ads",
+                "check": "Meta Pixel",
+                "passed": has_meta_pixel,
+                "details": "Meta Pixel detected." if has_meta_pixel else "No Meta Pixel found on page.",
+            }
+        )
+
+        has_gads = bool(re.search(r"AW-", html or ""))
+        findings.append(
+            {
+                "pillar": "Tracking & Ads",
+                "check": "Google Ads Conversion Tag",
+                "passed": has_gads,
+                "details": "Google Ads conversion tagging detected." if has_gads else "Google Ads tag not detected.",
+            }
+        )
+
+        return findings
+
+    def _check_conversion_signals(self, html: str) -> list:
+        soup = BeautifulSoup(html or "", "html.parser")
+        findings = []
+
+        forms = soup.find_all("form")
+        has_forms = len(forms) > 0
+        findings.append(
+            {
+                "pillar": "Conversion Funnels",
+                "check": "Lead Capture Forms",
+                "passed": has_forms,
+                "details": f"Found {len(forms)} form(s) on landing page." if has_forms else "No lead capture forms detected.",
+            }
+        )
+
+        has_whatsapp = bool(re.search(r"(wa\.me|whatsapp\.com)", html or "", re.I))
+        findings.append(
+            {
+                "pillar": "Conversion Funnels",
+                "check": "Instant Messaging (WhatsApp)",
+                "passed": has_whatsapp,
+                "details": "WhatsApp click-to-chat link detected." if has_whatsapp else "No instant WhatsApp link found.",
+            }
+        )
+
+        return findings
+
+    async def _check_robots_and_sitemap(
+        self, client: httpx.AsyncClient, base_domain: str
+    ) -> Tuple[bool, bool]:
+        try:
+            robots_resp = await client.get(f"{base_domain}/robots.txt", timeout=5.0)
+            robots_ok = robots_resp.status_code == 200
+        except Exception:  # noqa: BLE001
+            robots_ok = False
+
+        try:
+            sitemap_resp = await client.get(f"{base_domain}/sitemap.xml", timeout=5.0)
+            sitemap_ok = sitemap_resp.status_code == 200
+        except Exception:  # noqa: BLE001
+            sitemap_ok = False
+
+        return robots_ok, sitemap_ok
+
+    def _get_base_domain(self, url: str) -> str:
+        parsed = httpx.URL(url)
+        return f"{parsed.scheme}://{parsed.host}"

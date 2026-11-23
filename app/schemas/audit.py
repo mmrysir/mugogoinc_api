@@ -25,7 +25,7 @@ class AuditRunRequest(BaseModel):
         return cleaned.rstrip("/")
 
 
-# ── Diagnostic Check / Pillar / Report ────────────────────────────────────────
+# ── Diagnostic Check / Pillar / Finding / Score ───────────────────────────────
 
 class AuditCheck(BaseModel):
     name: str
@@ -39,17 +39,32 @@ class AuditPillar(BaseModel):
     checks: List[AuditCheck] = []
 
 
+class AuditFinding(BaseModel):
+    pillar: str
+    check: str
+    passed: bool = False
+    details: Optional[str] = None
+
+
+class AuditScoreSummary(BaseModel):
+    overall: float = 0.0
+    passed_count: int = 0
+    total_count: int = 0
+
+
+# ── Response ───────────────────────────────────────────────────────────────────
+
 class AuditReport(BaseModel):
     audit_id: int
     url: str
     business_name: str
     industry: Optional[str] = None
     overall_score: float = 0.0
+    status: str = "completed"
+    scores: AuditScoreSummary = Field(default_factory=AuditScoreSummary)
+    findings: List[AuditFinding] = []
     pillars: List[AuditPillar] = []
     generated_at: datetime
-    status: str = "completed"
-
-    model_config = {"from_attributes": True}
 
 
 class AuditLeadResponse(BaseModel):
@@ -61,8 +76,6 @@ class AuditLeadResponse(BaseModel):
     overall_score: float = 0.0
     created_at: datetime
 
-
-# ── Response ───────────────────────────────────────────────────────────────────
 
 class AuditRunResponse(BaseModel):
     status: str = "completed"

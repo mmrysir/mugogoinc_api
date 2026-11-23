@@ -17,12 +17,58 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.audit import AuditLead
-from app.schemas.audit import AuditLeadResponse, AuditReport, AuditRunRequest, AuditRunResponse
+from app.schemas.audit import (
+    AuditCheck,
+    AuditFinding,
+    AuditPillar,
+    AuditReport,
+    AuditRunRequest,
+    AuditRunResponse,
+)
 from app.services.audit_diagnostic import WebsiteAuditScanner
 
 logger = logging.getLogger("mugogo.audit")
 
 router = APIRouter(prefix="/audit", tags=["Website Audit & Lead Magnet"])
+
+
+def _build_pillars_from_findings(
+    findings: list[Dict[str, Any]],
+) -> tuple[list[AuditPillar], Dict[str, Any]]:
+    """Group flat findings by pillar and compute per-pillar + overall scores."""
+    grouped: Dict[str, list[Dict[str, Any]]] = {}
+    for f in findings or []:
+        pillar = str(f.get("pillar") or "General")
+        grouped.setdefault(pillar, []).append(f)
+
+    pillars: list[AuditPillar] = []
+    for pillar_name, checks in grouped.items():
+        passed = sum(1 for c in checks if c.get("passed"))
+        score = round((passed / len(checks)) * 100, 2) if checks else 0.0
+        pillars.append(
+            AuditPillar(
+                name=pillar_name,
+                score=score,
+                checks=[
+                    AuditCheck(
+                        name=str(c.get("check") or "check"),
+                        passed=bool(c.get("passed")),
+                        detail=c.get("details"),
+                    )
+                    for c in checks
+                ],
+            )
+        )
+
+    scores = {
+        "overall": round(
+            sum(float(p.score or 0.0) for p in pillars) / len(pillars) if pillars else 0.0, 2
+        ),
+        "passed_count": sum(1 for f in findings or [] if f.get("passed")),
+        "total_count": len(findings or []),
+    }
+
+    return pillars, scores
 
 
 @router.post("/run", response_model=AuditRunResponse, summary="Run website marketing diagnostic")
@@ -34,10 +80,11 @@ async def run_audit(
     persist the resulting lead + report. Public (lead magnet) endpoint.
     """
     scanner = WebsiteAuditScanner()
-    diagnostic = await scanner.run_full_diagnostic(payload.url)
+    diagnostic = await scanner.run_full_diagnostic()
 
-    pillars = diagnostic.get("pillars") or []
-    overall_score = float(diagnostic.get("overall_score") or 0.0)
+    findings: list[Dict[str, Any]] = diagnostic.get("findings") or []
+    pillars, scores = _build_pillars_from_findings(findings)
+    overall_score = float(scores["overall"])
 
     # Persist the audit lead
     lead = AuditLead(
@@ -48,10 +95,10 @@ async def run_audit(
         overall_score=overall_score,
         report_data={
             "url": diagnostic.get("url"),
-            "final_url": diagnostic.get("final_url"),
-            "status_code": diagnostic.get("status_code"),
-            "fetch_error": diagnostic.get("fetch_error"),
-            "pillars": pillars,
+            "status": diagnostic.get("status"),
+            "error": diagnostic.get("error"),
+            "scores": diagnostic.get("scores") or {},
+            "findings": findings,
         },
     )
     db.add(lead)
@@ -65,20 +112,27 @@ async def run_audit(
         business_name=lead.business_name,
         industry=lead.industry,
         overall_score=overall_score,
-        pillars=[
-            {
-                "name": p.get("name"),
-                "score": float(p.get("score") or 0.0),
-                "checks": p.get("checks") or [],
-            }
-            for p in pillars
+        status=str(diagnostic.get("status") or "completed"),
+        scores=AuditScoreSummary(
+            overall=float(scores["overall"]),
+            passed_count=int(scores["passed_count"]),
+            total_count=int(scores["total_count"]),
+        ),
+        findings=[
+            AuditFinding(
+                pillar=str(f.get("pillar") or "General"),
+                check=str(f.get("check") or "check"),
+                passed=bool(f.get("passed")),
+                details=f.get("details"),
+            )
+            for f in findings
         ],
+        pillars=pillars,
         generated_at=lead.created_at,
-        status="completed",
     )
 
     return AuditRunResponse(
-        status="completed",
+        status=str(diagnostic.get("status") or "completed"),
         audit=report,
         lead=AuditLeadResponse(
             id=lead.id,
@@ -103,21 +157,31 @@ async def get_audit(
     if not lead:
         raise HTTPException(status_code=404, detail="Audit report not found.")
 
-    pillars = lead.report_data.get("pillars") or []
+    findings: list[Dict[str, Any]] = lead.report_data.get("findings") or []
+    pillars, scores = _build_pillars_from_findings(findings)
+    overall_score = float(scores["overall"])
+
     return AuditReport(
         audit_id=lead.id,
         url=lead.target_url,
         business_name=lead.business_name,
         industry=lead.industry,
-        overall_score=float(lead.overall_score or 0.0),
-        pillars=[
-            {
-                "name": p.get("name"),
-                "score": float(p.get("score") or 0.0),
-                "checks": p.get("checks") or [],
-            }
-            for p in pillars
+        overall_score=overall_score,
+        status=str(lead.report_data.get("status") or "completed"),
+        scores=AuditScoreSummary(
+            overall=float(scores["overall"]),
+            passed_count=int(scores["passed_count"]),
+            total_count=int(scores["total_count"]),
+        ),
+        findings=[
+            AuditFinding(
+                pillar=str(f.get("pillar") or "General"),
+                check=str(f.get("check") or "check"),
+                passed=bool(f.get("passed")),
+                details=f.get("details"),
+            )
+            for f in findings
         ],
+        pillars=pillars,
         generated_at=lead.created_at,
-        status="completed",
     )
