@@ -224,11 +224,11 @@ class WebsiteAuditScanner:
         "places.nationalPhoneNumber,places.internationalPhoneNumber,"
         "places.websiteUri,places.rating,places.userRatingCount,"
         "places.businessStatus,places.regularOpeningHours,places.photos,"
-        "places.reviews,places.primaryTypeDisplayName"
+        "places.reviews,places.primaryTypeDisplayName,places.location"
     )
-    PLACES_COMPETITOR_FIELD_MASK = "places.id,places.displayName,places.rating,places.userRatingCount"
+    PLACES_COMPETITOR_FIELD_MASK = "places.id,places.displayName,places.rating,places.userRatingCount,places.location,places.formattedAddress"
 
-    async def _places_text_search(self, client: httpx.AsyncClient, text_query: str, field_mask: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    async def _places_text_search(self, client: httpx.AsyncClient, text_query: str, field_mask: str, max_results: int = 5, location_bias: Optional[dict] = None) -> List[Dict[str, Any]]:
         """Run a Places API (New) searchText request. Returns the list of places or []."""
         if not self.api_key or not text_query:
             return []
@@ -237,7 +237,9 @@ class WebsiteAuditScanner:
             "X-Goog-Api-Key": self.api_key,
             "X-Goog-FieldMask": field_mask,
         }
-        body = {"textQuery": text_query, "maxResultCount": max_results}
+        body: Dict[str, Any] = {"textQuery": text_query, "maxResultCount": max_results}
+        if location_bias:
+            body["locationBias"] = location_bias
         try:
             res = await client.post(self.PLACES_TEXT_SEARCH_URL, headers=headers, json=body, timeout=15.0)
             if res.status_code == 200:
@@ -287,7 +289,21 @@ class WebsiteAuditScanner:
         median_reviews = None
         if self.primary_city or self.industry:
             comp_query = f"{self.industry} in {self.primary_city}".strip()
-            comp_places = await self._places_text_search(client, comp_query, self.PLACES_COMPETITOR_FIELD_MASK, max_results=6)
+            # Bias results toward the matched place's location to avoid
+            # location-bias issues when the server is in a different region.
+            location_bias = None
+            if matched_place and matched_place.get("location"):
+                loc = matched_place["location"]
+                lat = loc.get("latitude")
+                lng = loc.get("longitude")
+                if lat is not None and lng is not None:
+                    location_bias = {
+                        "circle": {
+                            "center": {"latitude": lat, "longitude": lng},
+                            "radius": 50000.0,
+                        }
+                    }
+            comp_places = await self._places_text_search(client, comp_query, self.PLACES_COMPETITOR_FIELD_MASK, max_results=6, location_bias=location_bias)
             matched_id = matched_place.get("id") if matched_place else None
             for idx, item in enumerate(comp_places, start=1):
                 if matched_id and item.get("id") == matched_id:
