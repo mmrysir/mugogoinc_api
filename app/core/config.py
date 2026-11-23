@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     # ── App ──────────────────────────────────────────────────────────────────
     app_env: str = "development"
     app_secret_key: str = "insecure-default-key"
+    # Public URL of the frontend, used to send users back after OAuth.
+    frontend_url: str = "https://engine.mugogoinc.com"
 
     database_url: str = "postgresql+asyncpg://mugogo_user:YOUR_PASSWORD@localhost:5432/mugogo_db"
 

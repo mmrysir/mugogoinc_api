@@ -1,14 +1,18 @@
 """GSC OAuth handshake & telemetry sync router.
 
 Endpoints:
-  GET  /api/v1/business-units/{bu_id}/gsc/auth      → Redirect to Google consent screen
-  GET  /api/v1/business-units/{bu_id}/gsc/callback  → Handle OAuth code exchange
-  POST /api/v1/business-units/{bu_id}/gsc/sync      → Trigger Search Analytics fetch
-  GET  /api/v1/business-units/{bu_id}/gsc/status    → Return current gsc_metrics + connection state
+  GET  /api/v1/business-units/{bu_id}/gsc/auth-url      → Return Google consent URL
+  GET  /api/v1/gsc/callback                             → Google OAuth callback (public)
+  GET  /api/v1/business-units/{bu_id}/gsc/callback     → Legacy per-BU callback (delegates)
+  POST /api/v1/business-units/{bu_id}/gsc/sync         → Trigger Search Analytics fetch
+  GET  /api/v1/business-units/{bu_id}/gsc/status       → Return current gsc_metrics + connection state
   DELETE /api/v1/business-units/{bu_id}/gsc/disconnect → Revoke & clear tokens
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import logging
 from typing import Any, Dict, Optional
@@ -16,6 +20,7 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,10 +38,23 @@ router = APIRouter(
     tags=["GSC Telemetry & OAuth"],
 )
 
+# Public (unauthenticated) OAuth callback. Google redirects the browser here, so
+# it must not sit behind the JWT dependency. A single fixed callback path is used
+# for both the consent initiation and the token exchange: Google only accepts
+# exact, pre-registered redirect URIs and does not support wildcards, so a
+# per-Business-Unit path could never be registered.
+public_router = APIRouter(
+    prefix="/gsc",
+    tags=["GSC OAuth"],
+)
+
 # ── OAuth constants ────────────────────────────────────────────────────────────
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
+
+# Single redirect URI registered once in Google Cloud Console.
+_FIXED_CALLBACK_PATH = "/api/v1/gsc/callback"
 
 
 def _gsc_client_id() -> str:
@@ -61,10 +79,47 @@ def _gsc_client_secret() -> str:
     return secret
 
 
-def _callback_uri(request: Request, bu_id: str) -> str:
-    """Build the redirect_uri from the live request — no APP_BASE_URL env var needed."""
+def _base_url(request: Request) -> str:
+    """Base URL of the API as seen by Google during the OAuth handshake."""
     base = str(request.base_url).rstrip("/")
-    return f"{base}/api/v1/business-units/{bu_id}/gsc/callback"
+    if base.startswith("http://") and not any(
+        host in base for host in ("localhost", "127.0.0.1", "0.0.0.0")
+    ):
+        base = "https://" + base[len("http://") :]
+    return base
+
+
+def _callback_uri(request: Request) -> str:
+    """Fixed OAuth redirect URI used for both auth-url and callback."""
+    return f"{_base_url(request)}{_FIXED_CALLBACK_PATH}"
+
+
+def _sign_state(bu_id: str) -> str:
+    """Signed, stateless OAuth state: ``<bu_id>.<hmac-sha256-token>``."""
+    digest = hmac.new(
+        settings.app_secret_key.encode("utf-8"),
+        bu_id.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    token = base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
+    return f"{bu_id}.{token}"
+
+
+def _verify_state(state: Optional[str]) -> Optional[str]:
+    """Return the Business Unit id when the state signature is valid."""
+    if not state or "." not in state:
+        return None
+    bu_id, _, token = state.rpartition(".")
+    expected = base64.urlsafe_b64encode(
+        hmac.new(
+            settings.app_secret_key.encode("utf-8"),
+            bu_id.encode("utf-8"),
+            hashlib.sha256,
+        ).digest(),
+    ).decode("utf-8").rstrip("=")
+    if not token or not hmac.compare_digest(token, expected):
+        return None
+    return bu_id
 
 
 # ── Auth URL (authenticated JSON endpoint) ───────────────────────────────────
@@ -94,62 +149,31 @@ async def gsc_auth_url(
 
     params = {
         "client_id": client_id,
-        "redirect_uri": _callback_uri(request, bu_id),
+        "redirect_uri": _callback_uri(request),
         "response_type": "code",
         "scope": _GSC_SCOPE,
         "access_type": "offline",
         "prompt": "consent",
-        "state": bu_id,
+        "state": _sign_state(bu_id),
     }
     consent_url = f"{_GOOGLE_AUTH_URL}?{urlencode(params)}"
     logger.info("[GSC_OAUTH] Auth URL generated for BU %s", bu_id)
     return {"auth_url": consent_url}
 
 
-# ── OAuth Callback ─────────────────────────────────────────────────────────────
+# ── OAuth Callback (shared exchange logic) ─────────────────────────────────────
 
-@router.get(
-    "/{bu_id}/gsc/callback",
-    summary="Handle Google OAuth callback and persist tokens",
-)
-async def gsc_oauth_callback(
+async def _exchange_gsc_oauth(
     bu_id: str,
+    code: Optional[str],
     request: Request,
-    code: Optional[str] = Query(None),
-    error: Optional[str] = Query(None),
-    state: Optional[str] = Query(None),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession,
 ) -> Dict[str, Any]:
-    """Receive the authorization code from Google, exchange it for tokens,
-    and persist them to the BusinessUnit row.
+    """Exchange the Google authorization code and persist tokens for a BU.
 
-    Note: This endpoint is intentionally unauthenticated (no JWT required) because
-    Google redirects here after the user grants consent — the browser won't carry
-    our app's Authorization header. Security is maintained by:
-      1. Validating `state == bu_id`.
-      2. The short-lived authorization code.
-      3. Only SUPER_ADMIN/MANAGER can initiate the flow via /gsc/auth.
+    Raises HTTPException on failure; returns the success payload on success.
+    Shared by the public fixed callback and the legacy per-BU callback routes.
     """
-    if error:
-        logger.warning("[GSC_OAUTH] Callback received error for BU %s: %s", bu_id, error)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Google OAuth error: {error}",
-        )
-
-    if not code:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No authorization code received from Google.",
-        )
-
-    # Validate state matches bu_id
-    if state and state != bu_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OAuth state mismatch — possible CSRF. Please try again.",
-        )
-
     # Load BU
     result = await db.execute(select(BusinessUnit).where(BusinessUnit.id == bu_id))
     bu = result.scalar_one_or_none()
@@ -161,7 +185,7 @@ async def gsc_oauth_callback(
         "code": code,
         "client_id": _gsc_client_id(),
         "client_secret": _gsc_client_secret(),
-        "redirect_uri": _callback_uri(request, bu_id),
+        "redirect_uri": _callback_uri(request),
         "grant_type": "authorization_code",
     }
 
@@ -224,8 +248,106 @@ async def gsc_oauth_callback(
             "Tokens have been stored and an initial data sync has been triggered."
         ),
         "business_unit_id": bu_id,
+        "organization_id": bu.organization_id,
         "gsc_connected": True,
     }
+
+
+# ── OAuth Callback (legacy per-BU path — kept for backward compatibility) ─────
+
+@router.get(
+    "/{bu_id}/gsc/callback",
+    summary="Handle Google OAuth callback and persist tokens",
+)
+async def gsc_oauth_callback(
+    bu_id: str,
+    request: Request,
+    code: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Receive the authorization code from Google, exchange it for tokens,
+    and persist them to the BusinessUnit row.
+
+    Note: This endpoint is intentionally unauthenticated (no JWT required) because
+    Google redirects here after the user grants consent — the browser won't carry
+    our app's Authorization header. Security is maintained by:
+      1. Validating a signed `state` that encodes the BU id.
+      2. The short-lived authorization code.
+      3. Only SUPER_ADMIN/MANAGER can initiate the flow via /gsc/auth.
+    """
+    if error:
+        logger.warning("[GSC_OAUTH] Callback received error for BU %s: %s", bu_id, error)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Google OAuth error: {error}",
+        )
+
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No authorization code received from Google.",
+        )
+
+    resolved_bu_id = _verify_state(state) if state else None
+    if not resolved_bu_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth state mismatch — possible CSRF. Please try again.",
+        )
+    bu_id = resolved_bu_id
+
+    return await _exchange_gsc_oauth(bu_id, code, request, db)
+
+
+# ── OAuth Callback (public, fixed redirect URI) ─────────────────────────────────
+
+@public_router.get(
+    "/callback",
+    summary="Handle Google OAuth callback after the browser is redirected back from Google",
+)
+async def gsc_oauth_callback_public(
+    request: Request,
+    code: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Google redirects the browser here after consent. Exchanges the code and
+    redirects the user back to their Business Unit page, carrying a status flag.
+    """
+    resolved_bu_id = _verify_state(state) if state else None
+
+    if error:
+        logger.warning("[GSC_OAUTH] Callback received error for BU %s: %s", resolved_bu_id, error)
+        return RedirectResponse(
+            f"{settings.frontend_url.rstrip('/')}"
+            f"/organizations?gsc_error={urlencode({'bu_id': resolved_bu_id or '', 'error': error})}"
+        )
+
+    if not resolved_bu_id:
+        logger.warning("[GSC_OAUTH] Callback without valid state: %s", error or "no state")
+        return RedirectResponse(
+            f"{settings.frontend_url.rstrip('/')}"
+            f"/organizations?gsc_error={urlencode({'bu_id': '', 'error': error or 'invalid_state'})}"
+        )
+
+    try:
+        result = await _exchange_gsc_oauth(resolved_bu_id, code, request, db)
+    except HTTPException as exc:
+        logger.warning("[GSC_OAUTH] Callback failed for BU %s: %s", resolved_bu_id, exc.detail)
+        return RedirectResponse(
+            f"{settings.frontend_url.rstrip('/')}"
+            f"/organizations?gsc_error={urlencode({'bu_id': resolved_bu_id, 'error': str(exc.detail)})}"
+        )
+
+    logger.info("[GSC_OAUTH] Callback succeeded for BU %s", resolved_bu_id)
+    return RedirectResponse(
+        f"{settings.frontend_url.rstrip('/')}"
+        f"/organizations/{result.get('organization_id', '')}"
+        f"/business-units/{resolved_bu_id}?gsc_connected=1"
+    )
 
 
 # ── Sync Trigger ───────────────────────────────────────────────────────────────
