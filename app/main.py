@@ -95,7 +95,7 @@ app.include_router(reporting.router, prefix=API_PREFIX)
 app.include_router(gsc.router, prefix=API_PREFIX)
 app.include_router(gsc.public_router, prefix=API_PREFIX)
 app.include_router(audit.router, prefix=API_PREFIX)
-app.include_router(business_unit_audits.router)
+app.include_router(business_unit_audits.router, prefix=API_PREFIX)
 # 
 # # Blog Routers (Mounted with public & internal paths)
 app.include_router(blog.public_router)
