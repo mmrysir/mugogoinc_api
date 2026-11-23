@@ -60,12 +60,8 @@ jobs:
 
             # ── Inject Google secrets into .env (upsert — never echo values) ─
             _upsert_env() {
-              local key="$1" val="$2" file=".env"
-              if grep -q "^${key}=" "$file"; then
-                sed -i "s|^${key}=.*|${key}=${val}|" "$file"
-              else
-                echo "${key}=${val}" >> "$file"
-              fi
+              python3 scripts/upsert_env.py "$1" "$2" .env
+              echo "  upserted $1"
             }
             _upsert_env "GSC_CLIENT_ID"                 "$GSC_CLIENT_ID"
             _upsert_env "GSC_CLIENT_SECRET"             "$GSC_CLIENT_SECRET"
