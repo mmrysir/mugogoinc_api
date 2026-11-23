@@ -188,21 +188,29 @@ class WebsiteAuditScanner:
         return robots_ok, sitemap_ok, sitemap_in_robots
 
     async def _fetch_pagespeed_metrics(self, client: httpx.AsyncClient, url: str) -> dict:
-        # Try authenticated first (higher quota), fall back to public unauthenticated.
-        urls_to_try = []
+        import urllib.parse
+
+        encoded_url = urllib.parse.quote(url, safe="")
+
+        # Define the two URL options: [With Key, Without Key (Public Fallback)]
+        endpoints = []
         if self.api_key:
-            urls_to_try.append(
+            endpoints.append(
                 f"https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
-                f"?url={quote_plus(url)}&strategy=mobile&category=performance&category=seo&key={self.api_key}"
+                f"?url={encoded_url}&strategy=mobile&category=performance&category=seo&key={self.api_key}"
             )
-        urls_to_try.append(
+
+        # Always include the public unauthenticated endpoint as backup
+        endpoints.append(
             f"https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
-            f"?url={quote_plus(url)}&strategy=mobile&category=performance&category=seo"
+            f"?url={encoded_url}&strategy=mobile&category=performance&category=seo"
         )
 
-        for psi_endpoint in urls_to_try:
+        for idx, psi_url in enumerate(endpoints):
             try:
-                res = await client.get(psi_endpoint, timeout=35.0)
+                logger.info(f"Fetching PageSpeed (Attempt {idx + 1}) for {url}")
+                res = await client.get(psi_url, timeout=35.0)
+
                 if res.status_code == 200:
                     data = res.json()
                     lh = data.get("lighthouseResult", {})
@@ -217,9 +225,10 @@ class WebsiteAuditScanner:
                         "fcp": audits.get("first-contentful-paint", {}).get("displayValue"),
                     }
                 else:
-                    logger.warning(f"PageSpeed API returned {res.status_code}: {res.text[:300]}")
+                    logger.warning(f"PageSpeed attempt {idx + 1} returned status {res.status_code}: {res.text[:200]}")
             except Exception as e:
-                logger.warning(f"PageSpeed API error: {e}")
+                logger.warning(f"PageSpeed attempt {idx + 1} exception: {str(e)}")
+
         return {}
 
     # -------------------------------------------------------------------------
