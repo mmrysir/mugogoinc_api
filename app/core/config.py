@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     google_ads_customer_id: str = ""
     google_ads_login_customer_id: str | None = None
     google_ads_conversion_action_id: str = ""
+    google_cloud_api_key: str = ""
     cpl_threshold_usd: float = 15.0
 
     # ── Google Search Console OAuth ──────────────────────────────────

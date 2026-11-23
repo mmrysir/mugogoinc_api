@@ -80,7 +80,7 @@ async def run_audit(
     """Run the full multi-pillar marketing diagnostic for a prospect's URL and
     persist the resulting lead + report. Public (lead magnet) endpoint.
     """
-    scanner = WebsiteAuditScanner(payload.url)
+    scanner = WebsiteAuditScanner(payload.url, payload.business_name)
     diagnostic = await scanner.run_full_diagnostic()
 
     findings: list[Dict[str, Any]] = diagnostic.get("findings") or []

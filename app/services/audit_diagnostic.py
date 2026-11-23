@@ -7,29 +7,37 @@ Pillars:
   1. Technical SEO          — HTTP status, <title>, meta description
   2. Tracking & Ads         — GA / GTM / UA / Google Ads / Meta Pixel
   3. Conversion Funnels     — <form> count, WhatsApp / tel: integration
-  4. Robots & Sitemap       — robots.txt + sitemap.xml reachability
+  4. Technical Search       — robots.txt + sitemap.xml reachability
+  5. Mobile Performance    — Google PageSpeed Insights (Mobile, CWV)
+  6. Local & Reputation    — Google Places (Business Profile reviews)
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import quote, quote_plus, urljoin
 
 import httpx
 from bs4 import BeautifulSoup
+
+from app.core.config import settings
 
 logger = logging.getLogger("mugogo.audit")
 
 
 class WebsiteAuditScanner:
-    def __init__(self, target_url: str):
+    def __init__(self, target_url: str, business_name: Optional[str] = None):
         if not target_url.startswith("http://") and not target_url.startswith("https://"):
             self.target_url = f"https://{target_url}"
         else:
             self.target_url = target_url
 
+        self.business_name = business_name
+        # Support both settings (.env via pydantic) and a raw process env var.
+        self.api_key = settings.google_cloud_api_key or os.getenv("GOOGLE_CLOUD_API_KEY") or ""
         self.headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -42,7 +50,8 @@ class WebsiteAuditScanner:
         html_content = ""
         status_code = 0
 
-        async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=25.0) as client:
+            # 1. Fetch Homepage HTML & Core Checks
             try:
                 response = await client.get(self.target_url, headers=self.headers)
                 html_content = response.text
@@ -64,21 +73,17 @@ class WebsiteAuditScanner:
                     ],
                 }
 
-            # 1. Technical SEO checks
+            # Run local code inspections
             findings.extend(self._check_seo_tags(html_content, status_code))
-
-            # 2. Tracking & Pixels checks
             findings.extend(self._check_tracking_pixels(html_content))
-
-            # 3. Conversion Funnel checks
             findings.extend(self._check_conversion_signals(html_content))
 
-            # 4. Robots & Sitemap probe
+            # Robots.txt & Sitemap probe
             base_domain = self._get_base_domain(self.target_url)
             robots_ok, sitemap_ok = await self._check_robots_and_sitemap(client, base_domain)
             findings.append(
                 {
-                    "pillar": "Technical SEO",
+                    "pillar": "Technical Search",
                     "check": "Robots.txt & Sitemap",
                     "passed": robots_ok or sitemap_ok,
                     "details": (
@@ -88,7 +93,19 @@ class WebsiteAuditScanner:
                 }
             )
 
-        # Calculate overall score safely
+            # 2. Google PageSpeed Insights API (Mobile Performance & CWV)
+            if self.api_key:
+                psi_finding = await self._fetch_pagespeed_metrics(client, self.target_url)
+                if psi_finding:
+                    findings.append(psi_finding)
+
+            # 3. Google Places API (Reviews & Reputation)
+            if self.api_key and self.business_name:
+                places_finding = await self._fetch_google_places_metrics(client, self.business_name)
+                if places_finding:
+                    findings.append(places_finding)
+
+        # Calculate overall score dynamically
         total_checks = len(findings)
         passed_checks = sum(1 for f in findings if f.get("passed", False))
         overall_score = round((passed_checks / total_checks) * 100, 2) if total_checks > 0 else 0.0
@@ -103,6 +120,64 @@ class WebsiteAuditScanner:
             },
             "findings": findings,
         }
+
+    async def _fetch_pagespeed_metrics(self, client: httpx.AsyncClient, url: str) -> Optional[Dict[str, Any]]:
+        try:
+            res = await client.get(
+                "https://www.googleapis.com/pagespeedonline/v5/runPagespeed",
+                params={"url": url, "strategy": "mobile", "key": self.api_key},
+                timeout=20.0,
+            )
+            if res.status_code == 200:
+                data = res.json()
+                lighthouse = data.get("lighthouseResult", {})
+                categories = lighthouse.get("categories", {})
+                performance_score = categories.get("performance", {}).get("score", 0) * 100
+
+                passed = performance_score >= 50
+                return {
+                    "pillar": "Mobile Performance",
+                    "check": "Google PageSpeed Mobile Score",
+                    "passed": passed,
+                    "details": f"Mobile performance score is {int(performance_score)}/100.",
+                }
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"PageSpeed API error: {str(e)}")
+        return None
+
+    async def _fetch_google_places_metrics(
+        self, client: httpx.AsyncClient, biz_name: str
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            res = await client.get(
+                "https://maps.googleapis.com/maps/api/place/textsearch/json",
+                params={"query": biz_name, "key": self.api_key},
+                timeout=10.0,
+            )
+            if res.status_code == 200:
+                data = res.json()
+                results = data.get("results", [])
+                if results:
+                    place = results[0]
+                    rating = place.get("rating", 0.0)
+                    total_reviews = place.get("user_ratings_total", 0)
+                    passed = rating >= 4.0 and total_reviews >= 5
+                    return {
+                        "pillar": "Local & Reputation",
+                        "check": "Google Business Profile Reviews",
+                        "passed": passed,
+                        "details": f"Rating: {rating}★ across {total_reviews} reviews.",
+                    }
+                else:
+                    return {
+                        "pillar": "Local & Reputation",
+                        "check": "Google Business Profile",
+                        "passed": False,
+                        "details": "No matching Google Business Profile found for business name.",
+                    }
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Places API error: {str(e)}")
+        return None
 
     def _check_seo_tags(self, html: str, status_code: int) -> list:
         soup = BeautifulSoup(html or "", "html.parser")
