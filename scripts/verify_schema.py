@@ -25,7 +25,7 @@ async def _check() -> list[str]:
     def inspect_sync(sync_conn) -> None:
         inspector = inspect(sync_conn)
         existing_tables = set(inspector.get_table_names())
-        for table in Base.metadata.sorted_tables:
+        for table in Base.metadata.tables.values():
             if table.name not in existing_tables:
                 missing.append(f"table:{table.name}")
                 continue
