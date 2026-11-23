@@ -153,3 +153,10 @@ jobs:
               exit 1
             fi
             echo "--> Login probe passed (HTTP 401 for unknown user)"
+
+            # ── Google OAuth diagnostic (non-fatal) ──────────────────────
+            # Verifies the Google Ads refresh token and any stored per-BU
+            # GSC refresh token against Google's token endpoint. Never
+            # prints secret values; failures must not break the deploy.
+            echo "--> Checking Google OAuth credentials"
+            PYTHONPATH=. python scripts/check_google_auth.py || true
