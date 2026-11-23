@@ -5,6 +5,7 @@ from app.models.user import User, UserRole
 from app.models.post import BlogPost, PostStatus
 from app.models.tenant_channels import AgentOrgAssignment, ClientMarketingChannel
 from app.models.invitation import Invitation, InvitationStatus, InvitationRole
+from app.models.audit import AuditLead
 
 __all__ = [
     "Organization",
@@ -24,5 +25,6 @@ __all__ = [
     "Invitation",
     "InvitationStatus",
     "InvitationRole",
+    "AuditLead",
 ]
 
