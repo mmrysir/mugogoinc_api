@@ -106,9 +106,21 @@ jobs:
             PYTHONPATH=. python scripts/verify_schema.py
 
             # ── Start or restart under PM2 ────────────────────────────────
+            # Pin the worker count to 2. ecosystem.config.js is the source of
+            # truth, but enforce it here too so a future push cannot silently
+            # revert production to 4 workers.
+            sed -i -E 's/--workers [0-9]+/--workers 2/' ecosystem.config.js
+            grep -q -- '--workers 2' ecosystem.config.js || {
+              echo "ERROR: failed to enforce --workers 2 in ecosystem.config.js"
+              exit 1
+            }
+
             PM2_PATH=$(which pm2 || echo "/usr/local/bin/pm2")
             $PM2_PATH startOrReload ecosystem.config.js --update-env
             $PM2_PATH save
+
+            echo "--> Uvicorn processes:"
+            pgrep -af "uvicorn app.main:app" || true
 
             # ── Health check: API boots and the DB-backed login works ─────
             echo "--> Waiting for API to boot..."
