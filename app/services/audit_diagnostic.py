@@ -46,6 +46,11 @@ PILLAR_WEIGHTS = {
     AEO_PILLAR_NAME: 0.12,
 }
 
+# Google Places lookups backing the GBP / Maps Pack checks are quota-heavy; cache
+# successful lookups briefly so consecutive audits do not re-query (or flap) on jitter.
+PLACES_CACHE_TTL_SECONDS = 24 * 60 * 60
+_PLACES_CACHE: Dict[str, Tuple[float, Optional[dict]]] = {}
+
 
 class WebsiteAuditScanner:
     def __init__(
@@ -324,9 +329,18 @@ class WebsiteAuditScanner:
             logger.warning(f"Places API (New) error: {e}")
         return []
 
+    def _places_cache_key(self) -> str:
+        """Stable cache key for the Places lookup backing GBP / Maps Pack checks."""
+        return f"{self.clean_host}|{self.business_name}|{self.primary_city}|{self.industry}"
+
     async def _fetch_google_places_and_competitors(self, client: httpx.AsyncClient, page_title: str) -> dict:
         if not self.api_key:
             return {}
+
+        cache_key = self._places_cache_key()
+        cached = _PLACES_CACHE.get(cache_key)
+        if cached and cached[0] > time.time():
+            return cached[1] or {}
 
         # Build prioritized search candidates so slug inputs (e.g. "mnaranicinnamonspa") still resolve
         cleaned_title = re.split(r"[\|\-\–\—\:]", page_title)[0].strip() if page_title else ""
@@ -408,7 +422,7 @@ class WebsiteAuditScanner:
         recent_90d = sum(1 for r in reviews if self._review_age_days(r, now_ts) <= 90)
         negative_recent = sum(1 for r in reviews if (r.get("rating") or 5) <= 3)
 
-        return {
+        result = {
             "found": True,
             "rating": matched_place.get("rating", 0.0),
             "review_count": matched_place.get("userRatingCount", 0),
@@ -428,6 +442,8 @@ class WebsiteAuditScanner:
             },
             "reviews": reviews,
         }
+        _PLACES_CACHE[cache_key] = (time.time() + PLACES_CACHE_TTL_SECONDS, result)
+        return result
 
     def _review_age_days(self, review: dict, now_ts: float) -> int:
         """Return age in days of a review based on publishTime (RFC3339)."""
