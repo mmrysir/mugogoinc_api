@@ -138,6 +138,47 @@ def _build_client_summary(report_data: dict, previous_score: Optional[float]) ->
 # ── Audit Profile Update ──────────────────────────────────────────────────────
 
 
+# ── Unified profile save ─────────────────────────────────────────────────────
+
+
+@router.patch(
+    "",
+    response_model=BusinessUnitResponse,
+    summary="Unified tenant-scoped Business Unit profile update",
+)
+async def update_business_unit_full_profile(
+    org_id: str,
+    unit_id: str,
+    payload: BusinessUnitUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BusinessUnitResponse:
+    """Persist every editable Business Profile field in one tenant-scoped call.
+
+    Only fields present in the request body are written. Storefront rating and
+    review count are intentionally rejected here — they are owned exclusively by
+    the Google Places sync / audit pipeline and must never be hand-edited.
+    """
+    if current_user.role not in (UserRole.SUPER_ADMIN, UserRole.MANAGER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient privileges to edit business unit profiles",
+        )
+
+    _org, bu = await _load_org_and_bu(org_id, unit_id, db, current_user)
+
+    updates = payload.model_dump(exclude_unset=True)
+    updates.pop("google_business_rating", None)
+    updates.pop("google_business_review_count", None)
+
+    for field, value in updates.items():
+        setattr(bu, field, value)
+
+    await db.commit()
+    await db.refresh(bu)
+    return bu
+
+
 class AuditProfileUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=255)
     website_url: Optional[str] = Field(None, max_length=512)

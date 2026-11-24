@@ -138,7 +138,8 @@ async def update_business_unit(
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(bu, field, value)
 
-    await db.flush()
+    await db.commit()
+    await db.refresh(bu)
     return bu
 
 
@@ -163,7 +164,8 @@ async def update_business_unit_profile(
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(bu, field, value)
 
-    await db.flush()
+    await db.commit()
+    await db.refresh(bu)
     return bu
 
 
