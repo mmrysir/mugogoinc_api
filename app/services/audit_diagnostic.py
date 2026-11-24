@@ -15,6 +15,37 @@ from app.core.config import settings
 
 logger = logging.getLogger("mugogo.audit")
 
+AEO_PILLAR_NAME = "AEO & AI Discoverability"
+AI_CRAWLER_BOTS = ("GPTBot", "ClaudeBot", "PerplexityBot", "CCBot", "Google-Extended")
+
+# Entity types that answer engines use to verify who a business is.
+CORE_ENTITY_SCHEMA_TYPES = {
+    "Organization",
+    "LocalBusiness",
+    "WebSite",
+    "Hotel",
+    "Restaurant",
+    "Store",
+    "MedicalBusiness",
+    "HealthAndBeautyBusiness",
+    "ProfessionalService",
+    "LodgingBusiness",
+    "FoodEstablishment",
+    "HomeAndConstructionBusiness",
+    "EntertainmentBusiness",
+}
+
+# Weights are rebalanced when a pillar is added so the overall score remains 0-100.
+PILLAR_WEIGHTS = {
+    "Search Engine Optimization": 0.20,
+    "Google Business Profile": 0.18,
+    "Reputation & Reviews": 0.14,
+    "Advertising & Paid Media": 0.13,
+    "Content & Conversion Funnel": 0.15,
+    "Social Media Presence": 0.08,
+    AEO_PILLAR_NAME: 0.12,
+}
+
 
 class WebsiteAuditScanner:
     def __init__(
@@ -78,11 +109,11 @@ class WebsiteAuditScanner:
             psi_task = self._fetch_pagespeed_metrics(client, final_url)
             places_task = self._fetch_google_places_and_competitors(client, page_title)
 
-            (robots_ok, sitemap_ok, sitemap_in_robots), psi_data, places_data = (
+            (robots_ok, sitemap_ok, sitemap_in_robots, robots_text), psi_data, places_data = (
                 await asyncio.gather(robots_task, psi_task, places_task)
             )
 
-        # Evaluate all 6 pillars
+        # Evaluate all 7 pillars
         seo_checks = self._evaluate_seo_and_speed(
             soup, html_content, status_code, final_url, response_time_ms,
             robots_ok, sitemap_ok, sitemap_in_robots, psi_data
@@ -92,15 +123,39 @@ class WebsiteAuditScanner:
         ads_checks = self._evaluate_advertising(html_content)
         conversion_checks = self._evaluate_conversion_funnel(soup, html_content)
         social_checks = self._evaluate_social_presence(soup, html_content)
+        aeo_checks = self._evaluate_aeo(soup, html_content, robots_text)
 
         pillars = [
-            self._score_pillar("Search Engine Optimization", seo_checks, weight=0.25),
-            self._score_pillar("Google Business Profile", gbp_checks, weight=0.20),
-            self._score_pillar("Reputation & Reviews", reputation_checks, weight=0.15),
-            self._score_pillar("Advertising & Paid Media", ads_checks, weight=0.15),
-            self._score_pillar("Content & Conversion Funnel", conversion_checks, weight=0.15),
-            self._score_pillar("Social Media Presence", social_checks, weight=0.10),
+            self._score_pillar(
+                "Search Engine Optimization", seo_checks,
+                weight=PILLAR_WEIGHTS["Search Engine Optimization"],
+            ),
+            self._score_pillar(
+                "Google Business Profile", gbp_checks,
+                weight=PILLAR_WEIGHTS["Google Business Profile"],
+            ),
+            self._score_pillar(
+                "Reputation & Reviews", reputation_checks,
+                weight=PILLAR_WEIGHTS["Reputation & Reviews"],
+            ),
+            self._score_pillar(
+                "Advertising & Paid Media", ads_checks,
+                weight=PILLAR_WEIGHTS["Advertising & Paid Media"],
+            ),
+            self._score_pillar(
+                "Content & Conversion Funnel", conversion_checks,
+                weight=PILLAR_WEIGHTS["Content & Conversion Funnel"],
+            ),
+            self._score_pillar(
+                "Social Media Presence", social_checks,
+                weight=PILLAR_WEIGHTS["Social Media Presence"],
+            ),
+            self._score_pillar(
+                AEO_PILLAR_NAME, aeo_checks,
+                weight=PILLAR_WEIGHTS[AEO_PILLAR_NAME],
+            ),
         ]
+        aeo_pillar = next((p for p in pillars if p["name"] == AEO_PILLAR_NAME), None)
 
         all_checks = [c for p in pillars for c in p["checks"]]
         total_measured = len(all_checks)
@@ -157,6 +212,8 @@ class WebsiteAuditScanner:
             "competitors": places_data.get("competitors", []),
             "gbp_profile": places_data.get("profile", {}),
             "pillars": pillars,
+            "aeo_score": aeo_pillar["score"] if aeo_pillar else 0,
+            "aeo_checks": aeo_pillar["checks"] if aeo_pillar else [],
             "action_plan": action_plan,
             "findings": flat_findings,
         }
@@ -168,12 +225,14 @@ class WebsiteAuditScanner:
         robots_ok = False
         sitemap_ok = False
         sitemap_in_robots = False
+        robots_text = ""
 
         try:
             r = await client.get(f"{self.base_domain}/robots.txt", headers=self.headers, timeout=8.0)
-            if r.status_code == 200 and "user-agent" in r.text.lower():
+            robots_text = r.text or ""
+            if r.status_code == 200 and "user-agent" in robots_text.lower():
                 robots_ok = True
-                if "sitemap:" in r.text.lower():
+                if "sitemap:" in robots_text.lower():
                     sitemap_in_robots = True
         except Exception:
             pass
@@ -185,7 +244,7 @@ class WebsiteAuditScanner:
         except Exception:
             pass
 
-        return robots_ok, sitemap_ok, sitemap_in_robots
+        return robots_ok, sitemap_ok, sitemap_in_robots, robots_text
 
     async def _fetch_pagespeed_metrics(self, client: httpx.AsyncClient, url: str) -> dict:
         import urllib.parse
@@ -723,18 +782,256 @@ class WebsiteAuditScanner:
         return checks
 
     # -------------------------------------------------------------------------
+    # AEO & AI Discoverability
+    # -------------------------------------------------------------------------
+    def _meta_content(self, soup, attr: str, key: str) -> str:
+        tag = soup.find("meta", attrs={attr: re.compile(rf"^{re.escape(key)}$", re.I)})
+        return (tag.get("content") or "").strip() if tag else ""
+
+    def _iter_json_ld_nodes(self, data):
+        """Yield every object in a JSON-LD payload, including @graph members."""
+        stack = [data]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, list):
+                stack.extend(node)
+            elif isinstance(node, dict):
+                yield node
+                graph = node.get("@graph")
+                if isinstance(graph, list):
+                    stack.extend(graph)
+                elif isinstance(graph, dict):
+                    stack.append(graph)
+
+    def _extract_json_ld(self, soup) -> Tuple[int, int, List[str]]:
+        valid_blocks = 0
+        invalid_blocks = 0
+        schema_types = set()
+
+        for tag in soup.find_all("script", attrs={"type": re.compile(r"^application/ld\+json$", re.I)}):
+            raw = (tag.string or tag.get_text() or "").strip()
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except (TypeError, ValueError):
+                invalid_blocks += 1
+                continue
+
+            valid_blocks += 1
+            for node in self._iter_json_ld_nodes(data):
+                node_type = node.get("@type")
+                if isinstance(node_type, str):
+                    schema_types.add(node_type)
+                elif isinstance(node_type, list):
+                    schema_types.update(t for t in node_type if isinstance(t, str))
+
+        return valid_blocks, invalid_blocks, sorted(schema_types)
+
+    def _robots_blocks_bot(self, robots_text: str, bot: str) -> bool:
+        """Return True when robots.txt disallows this bot from the audited path."""
+        if not robots_text:
+            return False
+
+        groups: List[Tuple[List[str], List[Tuple[str, str]]]] = []
+        agents: List[str] = []
+        rules: List[Tuple[str, str]] = []
+
+        for raw_line in robots_text.splitlines():
+            line = raw_line.split("#", 1)[0].strip()
+            if not line or ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            key = key.strip().lower()
+            value = value.strip()
+
+            if key == "user-agent":
+                if rules:
+                    groups.append((agents, rules))
+                    agents, rules = [], []
+                agents.append(value.lower())
+            elif key in ("allow", "disallow") and agents:
+                rules.append((key, value))
+        if rules:
+            groups.append((agents, rules))
+
+        bot_key = bot.lower()
+        specific = [group_rules for group_agents, group_rules in groups if bot_key in group_agents]
+        wildcard = [group_rules for group_agents, group_rules in groups if "*" in group_agents]
+        active_rules = specific[-1] if specific else (wildcard[-1] if wildcard else [])
+
+        target_path = self.parsed_url.path or "/"
+        blocked = False
+        for key, value in active_rules:
+            if not value:
+                continue
+            if value != "/" and not target_path.startswith(value.rstrip("*")):
+                continue
+            if key == "disallow":
+                blocked = True
+            elif key == "allow":
+                blocked = False
+        return blocked
+
+    def _evaluate_aeo(self, soup, html: str, robots_text: str) -> list:
+        checks = []
+
+        # 1. JSON-LD schema and core entity recognition
+        valid_blocks, invalid_blocks, schema_types = self._extract_json_ld(soup)
+        identity_types = sorted(t for t in schema_types if t in CORE_ENTITY_SCHEMA_TYPES)
+        has_faq = "FAQPage" in schema_types
+
+        if valid_blocks and identity_types:
+            schema_status = "strong"
+        elif valid_blocks or invalid_blocks:
+            schema_status = "needs_work"
+        else:
+            schema_status = "priority"
+
+        if valid_blocks and identity_types:
+            schema_evidence = (
+                f"Valid JSON-LD found ({valid_blocks} block(s)). "
+                f"Core entities: {', '.join(identity_types)}. "
+                f"FAQPage: {'present' if has_faq else 'not found'}."
+            )
+        elif valid_blocks:
+            schema_evidence = (
+                f"Valid JSON-LD found ({valid_blocks} block(s)), but no Organization, "
+                f"LocalBusiness or WebSite entity. Types: {', '.join(schema_types) or 'none'}."
+            )
+        elif invalid_blocks:
+            schema_evidence = f"Found {invalid_blocks} JSON-LD block(s), but none parsed as valid JSON."
+        else:
+            schema_evidence = "No JSON-LD schema markup found."
+
+        checks.append({
+            "title": "JSON-LD Schema & Core Entity",
+            "status": schema_status,
+            "evidence": schema_evidence,
+            "impact": "Answer engines use Organization, LocalBusiness and WebSite schema to verify who you are and cite your business.",
+            "weight": 0.30,
+        })
+
+        # 2. OpenGraph and Twitter card metadata
+        og_title = self._meta_content(soup, "property", "og:title")
+        og_desc = self._meta_content(soup, "property", "og:description")
+        og_image = self._meta_content(soup, "property", "og:image")
+        twitter_card = self._meta_content(soup, "name", "twitter:card")
+        og_count = sum(bool(v) for v in (og_title, og_desc, og_image))
+
+        if og_count == 3:
+            og_status = "strong"
+        elif og_count:
+            og_status = "needs_work"
+        else:
+            og_status = "priority"
+
+        checks.append({
+            "title": "OpenGraph & Twitter Card Metadata",
+            "status": og_status,
+            "evidence": (
+                f"OpenGraph title: {'present' if og_title else 'missing'} · "
+                f"description: {'present' if og_desc else 'missing'} · "
+                f"image: {'present' if og_image else 'missing'} · "
+                f"Twitter card: {'present' if twitter_card else 'missing'}."
+            ),
+            "impact": "Rich preview metadata helps search and AI surfaces render accurate titles, summaries and images.",
+            "weight": 0.20,
+        })
+
+        # 3. Semantic heading hierarchy
+        h1s = [h.get_text(strip=True) for h in soup.find_all("h1") if h.get_text(strip=True)]
+        h2s = [h.get_text(strip=True) for h in soup.find_all("h2") if h.get_text(strip=True)]
+        h3s = [h.get_text(strip=True) for h in soup.find_all("h3") if h.get_text(strip=True)]
+
+        if len(h1s) == 1 and (h2s or h3s):
+            heading_status = "strong"
+        elif len(h1s) >= 1:
+            heading_status = "needs_work"
+        else:
+            heading_status = "priority"
+
+        checks.append({
+            "title": "Semantic Heading Hierarchy",
+            "status": heading_status,
+            "evidence": f"Found {len(h1s)} H1, {len(h2s)} H2 and {len(h3s)} H3 heading(s).",
+            "impact": "A single H1 with supporting H2/H3 sections helps answer engines chunk and quote the right content.",
+            "weight": 0.15,
+        })
+
+        # 4. Meta description for AI summaries
+        meta_desc = self._meta_content(soup, "name", "description")
+        desc_len = len(meta_desc)
+        if 50 <= desc_len <= 165:
+            desc_status = "strong"
+        elif desc_len:
+            desc_status = "needs_work"
+        else:
+            desc_status = "priority"
+
+        checks.append({
+            "title": "Meta Description for AI Summaries",
+            "status": desc_status,
+            "evidence": f"{desc_len} characters present." if desc_len else "No meta description tag found.",
+            "impact": "Search snippets and AI summaries rely on a concise description of the page's core offer.",
+            "weight": 0.15,
+        })
+
+        # 5. AI crawler access
+        robots_meta = soup.find("meta", attrs={"name": re.compile(r"^robots$", re.I)})
+        robots_meta_content = (robots_meta.get("content") or "").lower() if robots_meta else ""
+        ai_meta_blocked = any(
+            "noindex" in self._meta_content(soup, "name", bot).lower()
+            for bot in AI_CRAWLER_BOTS
+        )
+        blocked_bots = [bot for bot in AI_CRAWLER_BOTS if self._robots_blocks_bot(robots_text, bot)]
+
+        if "noindex" in robots_meta_content or ai_meta_blocked:
+            crawler_status = "priority"
+        elif len(blocked_bots) >= 3:
+            crawler_status = "priority"
+        elif blocked_bots:
+            crawler_status = "needs_work"
+        else:
+            crawler_status = "strong"
+
+        if "noindex" in robots_meta_content:
+            crawler_evidence = "Homepage meta robots contains noindex, blocking AI crawlers."
+        elif ai_meta_blocked:
+            crawler_evidence = "A bot-specific meta robots tag blocks an AI crawler."
+        elif blocked_bots:
+            crawler_evidence = f"robots.txt blocks: {', '.join(blocked_bots)}."
+        elif robots_text:
+            crawler_evidence = "robots.txt does not block GPTBot, ClaudeBot, PerplexityBot, CCBot or Google-Extended."
+        else:
+            crawler_evidence = "No robots.txt found; AI crawlers are allowed by default."
+
+        checks.append({
+            "title": "AI Crawler Access (GPTBot, ClaudeBot, PerplexityBot)",
+            "status": crawler_status,
+            "evidence": crawler_evidence,
+            "impact": "If AI crawlers are blocked, ChatGPT, Claude, Perplexity and Google AI cannot read or cite your site.",
+            "weight": 0.20,
+        })
+
+        return checks
+
+    # -------------------------------------------------------------------------
     # Scoring, Grading & Action Plan Helpers
     # -------------------------------------------------------------------------
     def _score_pillar(self, name: str, checks: list, weight: float) -> dict:
         if not checks:
             return {"name": name, "score": 0, "grade": "F", "weight": weight, "checks": []}
         points = 0.0
+        possible = 0.0
         for c in checks:
+            check_weight = float(c.get("weight", 1.0))
+            possible += check_weight
             if c["status"] == "strong":
-                points += 1.0
+                points += check_weight
             elif c["status"] == "needs_work":
-                points += 0.5
-        score = int(round((points / len(checks)) * 100))
+                points += check_weight * 0.5
+        score = int(round((points / possible) * 100)) if possible else 0
         return {
             "name": name,
             "score": score,
@@ -789,6 +1086,8 @@ class WebsiteAuditScanner:
             "competitors": [],
             "gbp_profile": {},
             "pillars": [],
+            "aeo_score": 0,
+            "aeo_checks": [],
             "action_plan": [],
             "findings": [{
                 "pillar": "Connectivity",

@@ -2,7 +2,7 @@
 
 Endpoints (all under /organizations/{org_id}/business-units/{unit_id}):
   PATCH  /audit-profile          → update BU audit profile fields
-  POST   /audits                 → run a 6-pillar audit (pre-filled from BU)
+  POST   /audits                 → run a 7-pillar audit (pre-filled from BU)
   GET    /audits                 → chronological audit history with score deltas
   GET    /audits/{audit_id}      → dual-view report (client_summary + agent_diagnostic)
 """
@@ -27,7 +27,7 @@ from app.routers.auth import get_current_user
 from app.routers.organizations import _can_access
 from app.schemas.audit import AuditRunRequest
 from app.schemas.business_unit import BusinessUnitResponse, BusinessUnitUpdate
-from app.services.audit_diagnostic import WebsiteAuditScanner
+from app.services.audit_diagnostic import AEO_PILLAR_NAME, WebsiteAuditScanner
 
 logger = logging.getLogger("mugogo.bu_audit")
 
@@ -93,17 +93,20 @@ def _effective_phone(bu: BusinessUnit, override: Optional[str] = None) -> Option
 
 
 def _build_client_summary(report_data: dict, previous_score: Optional[float]) -> dict:
-    """Simplified 3-pillar executive metrics for client/org_owner roles."""
+    """Simplified executive metrics for client/org_owner roles."""
     pillars = report_data.get("pillars", [])
-    # Map 6 technical pillars -> 3 executive pillars
+    # Map 7 technical pillars -> 3 executive metrics + AI discoverability
     seo = next((p for p in pillars if p["name"] == "Search Engine Optimization"), None)
     reputation = next((p for p in pillars if p["name"] == "Reputation & Reviews"), None)
     conversion = next((p for p in pillars if p["name"] == "Content & Conversion Funnel"), None)
     gbp = next((p for p in pillars if p["name"] == "Google Business Profile"), None)
+    aeo = next((p for p in pillars if p["name"] == AEO_PILLAR_NAME), None)
 
-    online_visibility = round(((seo["score"] if seo else 0) + (gbp["score"] if gbp else 0)) / 2, 1) if (seo or gbp) else 0
+    visibility_pillars = [p["score"] for p in (seo, gbp, aeo) if p]
+    online_visibility = round(sum(visibility_pillars) / len(visibility_pillars), 1) if visibility_pillars else 0
     reputation_trust = reputation["score"] if reputation else 0
     lead_capture = conversion["score"] if conversion else 0
+    ai_discoverability = aeo["score"] if aeo else report_data.get("aeo_score", 0)
 
     overall = report_data.get("scores", {}).get("overall", 0.0)
     delta = None
@@ -125,6 +128,7 @@ def _build_client_summary(report_data: dict, previous_score: Optional[float]) ->
         "online_visibility": online_visibility,
         "reputation_and_trust": reputation_trust,
         "lead_capture": lead_capture,
+        "ai_discoverability": ai_discoverability,
         "overall_score": overall,
         "grade": report_data.get("grade", "F"),
         "score_delta": delta,
@@ -227,7 +231,7 @@ class RunAuditRequest(BaseModel):
     save_to_profile: bool = False
 
 
-@router.post("/audits", summary="Run a 6-pillar audit for this business unit")
+@router.post("/audits", summary="Run a 7-pillar audit for this business unit")
 async def run_bu_audit(
     org_id: str,
     unit_id: str,
@@ -398,6 +402,8 @@ async def get_bu_audit(
             "gbp_profile": report_data.get("gbp_profile", {}),
             "findings": report_data.get("findings", []),
             "scores": report_data.get("scores", {}),
+            "aeo_score": report_data.get("aeo_score", 0),
+            "aeo_checks": report_data.get("aeo_checks", []),
         }
 
     return response
