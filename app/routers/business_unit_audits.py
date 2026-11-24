@@ -92,7 +92,7 @@ def _effective_phone(bu: BusinessUnit, override: Optional[str] = None) -> Option
     return bu.phone
 
 
-def _build_client_summary(report_data: dict, previous_score: Optional[float]) -> dict:
+def _build_client_summary(report_data: dict, previous_score: Optional[float], baseline_score: Optional[float] = None) -> dict:
     """Simplified executive metrics for client/org_owner roles."""
     pillars = report_data.get("pillars", [])
     # Map 7 technical pillars -> 3 executive metrics + AI discoverability
@@ -112,6 +112,9 @@ def _build_client_summary(report_data: dict, previous_score: Optional[float]) ->
     delta = None
     if previous_score is not None:
         delta = round(overall - previous_score, 1)
+    baseline_delta = None
+    if baseline_score is not None:
+        baseline_delta = round(overall - baseline_score, 1)
 
     # Top 3 plain-English priorities from action plan
     action_plan = report_data.get("action_plan", [])
@@ -132,6 +135,8 @@ def _build_client_summary(report_data: dict, previous_score: Optional[float]) ->
         "overall_score": overall,
         "grade": report_data.get("grade", "F"),
         "score_delta": delta,
+        "baseline_score": baseline_score,
+        "baseline_delta": baseline_delta,
         "top_priorities": top_priorities,
         "competitor_rating": report_data.get("metrics", {}).get("google_rating"),
         "competitor_reviews": report_data.get("metrics", {}).get("google_reviews"),
@@ -378,7 +383,16 @@ async def get_bu_audit(
     prev_lead = prev_result.scalar_one_or_none()
     previous_score = prev_lead.overall_score if prev_lead else None
 
-    client_summary = _build_client_summary(report_data, previous_score)
+    first_result = await db.execute(
+        select(AuditLead)
+        .where(AuditLead.business_unit_id == unit_id)
+        .order_by(AuditLead.created_at.asc())
+        .limit(1)
+    )
+    first_lead = first_result.scalar_one_or_none()
+    baseline_score = first_lead.overall_score if first_lead else None
+
+    client_summary = _build_client_summary(report_data, previous_score, baseline_score)
 
     # Role-aware: agents/admins get full diagnostic; clients get summary only
     is_agent = current_user.role in (UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.AGENT)
