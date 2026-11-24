@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -40,6 +40,13 @@ class AuditLead(Base):
     )
     triggered_by_user_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Tier-2 stable snapshot marker. Live/manual scans use False; the monthly
+    # benchmark job (or a manual promote) sets True so deltas can anchor to a
+    # stable baseline instead of a volatile immediate-predecessor run.
+    is_monthly_snapshot: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper

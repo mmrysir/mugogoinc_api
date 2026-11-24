@@ -48,6 +48,7 @@ async def run_marketing_audit(
         industry=payload.industry.strip() if payload.industry else None,
         overall_score=overall_score,
         report_data=report,
+        is_monthly_snapshot=payload.is_monthly_snapshot,
     )
     db.add(lead)
     await db.commit()

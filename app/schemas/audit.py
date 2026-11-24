@@ -15,6 +15,7 @@ class AuditRunRequest(BaseModel):
     email: EmailStr = Field(..., min_length=3)
     industry: Optional[str] = Field(default="General Business")
     phone: Optional[str] = Field(default=None)
+    is_monthly_snapshot: bool = Field(default=False)
 
     @field_validator("url")
     @classmethod

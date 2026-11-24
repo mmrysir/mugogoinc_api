@@ -234,6 +234,7 @@ class RunAuditRequest(BaseModel):
     industry: Optional[str] = None
     phone: Optional[str] = None
     save_to_profile: bool = False
+    is_monthly_snapshot: bool = False
 
 
 @router.post("/audits", summary="Run a 7-pillar audit for this business unit")
@@ -290,6 +291,7 @@ async def run_bu_audit(
         organization_id=org_id,
         business_unit_id=unit_id,
         triggered_by_user_id=current_user.id,
+        is_monthly_snapshot=payload.is_monthly_snapshot,
     )
     db.add(lead)
     await db.commit()
@@ -383,14 +385,30 @@ async def get_bu_audit(
     prev_lead = prev_result.scalar_one_or_none()
     previous_score = prev_lead.overall_score if prev_lead else None
 
-    first_result = await db.execute(
+    # Two-tier model: prefer the most recent monthly snapshot as the stable
+    # baseline; fall back to the first audit when no snapshot exists yet.
+    snapshot_result = await db.execute(
         select(AuditLead)
-        .where(AuditLead.business_unit_id == unit_id)
-        .order_by(AuditLead.created_at.asc())
+        .where(
+            AuditLead.business_unit_id == unit_id,
+            AuditLead.is_monthly_snapshot == True,
+            AuditLead.id != lead.id,
+        )
+        .order_by(AuditLead.created_at.desc())
         .limit(1)
     )
-    first_lead = first_result.scalar_one_or_none()
-    baseline_score = first_lead.overall_score if first_lead else None
+    snapshot_lead = snapshot_result.scalar_one_or_none()
+    if snapshot_lead is not None:
+        baseline_score = snapshot_lead.overall_score
+    else:
+        first_result = await db.execute(
+            select(AuditLead)
+            .where(AuditLead.business_unit_id == unit_id)
+            .order_by(AuditLead.created_at.asc())
+            .limit(1)
+        )
+        first_lead = first_result.scalar_one_or_none()
+        baseline_score = first_lead.overall_score if first_lead else None
 
     client_summary = _build_client_summary(report_data, previous_score, baseline_score)
 
