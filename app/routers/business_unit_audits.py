@@ -277,6 +277,9 @@ async def run_bu_audit(
         business_name=business_name,
         primary_city=city,
         industry=industry,
+        phone=phone,
+        google_place_id=bu.google_business_place_id,
+        maps_url=bu.google_business_map_url,
     )
     report = await scanner.run_full_diagnostic()
     overall_score = float(report.get("scores", {}).get("overall", 0.0))

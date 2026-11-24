@@ -59,6 +59,9 @@ class WebsiteAuditScanner:
         business_name: str = "",
         primary_city: str = "",
         industry: str = "General Business",
+        phone: Optional[str] = None,
+        google_place_id: Optional[str] = None,
+        maps_url: Optional[str] = None,
     ):
         raw_url = target_url.strip()
         if not raw_url.startswith(("http://", "https://")):
@@ -71,6 +74,9 @@ class WebsiteAuditScanner:
         self.business_name = (business_name or "").strip()
         self.primary_city = (primary_city or "").strip()
         self.industry = (industry or "General Business").strip()
+        self.phone = (phone or "").strip() if phone else ""
+        self.google_place_id = (google_place_id or "").strip() if google_place_id else ""
+        self.maps_url = (maps_url or "").strip() if maps_url else ""
         self.api_key = (settings.google_cloud_api_key or os.getenv("GOOGLE_CLOUD_API_KEY") or "").strip()
 
         self.headers = {
@@ -331,7 +337,38 @@ class WebsiteAuditScanner:
 
     def _places_cache_key(self) -> str:
         """Stable cache key for the Places lookup backing GBP / Maps Pack checks."""
-        return f"{self.clean_host}|{self.business_name}|{self.primary_city}|{self.industry}"
+        return f"{self.clean_host}|{self.business_name}|{self.primary_city}|{self.industry}|{self.google_place_id}|{self.maps_url}"
+
+    async def _fetch_place_details_by_id(self, client: httpx.AsyncClient, place_id: str) -> Optional[dict]:
+        """Direct Places Details (New) lookup by place_id, returning the same shape as text search."""
+        if not place_id or not self.api_key:
+            return None
+        url = f"https://places.googleapis.com/v1/places/{place_id.strip()}"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": self.api_key,
+            "X-Goog-FieldMask": self.PLACES_FIELD_MASK,
+        }
+        try:
+            res = await client.get(url, headers=headers, timeout=15.0)
+            if res.status_code == 200:
+                return res.json()
+            logger.warning("Places Details (New) for %s returned %d", place_id, res.status_code)
+        except Exception as e:
+            logger.warning("Places Details (New) request error for %s: %s", place_id, e)
+        return None
+
+    def _extract_place_id_from_maps_url(self, maps_url: str) -> Optional[str]:
+        """Best-effort extraction of a place_id / cid token from a Maps URL."""
+        if not maps_url:
+            return None
+        m = re.search(r"place_id[:=]([A-Za-z0-9_-]+)", maps_url)
+        if m:
+            return m.group(1)
+        m = re.search(r"(ChIJ[A-Za-z0-9_-]+)", maps_url)
+        if m:
+            return m.group(1)
+        return None
 
     async def _fetch_google_places_and_competitors(self, client: httpx.AsyncClient, page_title: str) -> dict:
         if not self.api_key:
@@ -342,7 +379,17 @@ class WebsiteAuditScanner:
         if cached and cached[0] > time.time():
             return cached[1] or {}
 
+        # Priority 1: deterministic lookup from a saved Place ID (or parsed from a Maps URL).
+        matched_place = None
+        if self.google_place_id:
+            matched_place = await self._fetch_place_details_by_id(client, self.google_place_id)
+        if matched_place is None and self.maps_url:
+            extracted = self._extract_place_id_from_maps_url(self.maps_url)
+            if extracted:
+                matched_place = await self._fetch_place_details_by_id(client, extracted)
+
         # Build prioritized search candidates so slug inputs (e.g. "mnaranicinnamonspa") still resolve
+        # (only used when no deterministic Place ID lookup succeeded).
         cleaned_title = re.split(r"[\|\-\–\—\:]", page_title)[0].strip() if page_title else ""
         domain_words = re.sub(r"\.[a-z]{2,6}$", "", self.clean_host).replace("-", " ").replace("_", " ")
 
@@ -354,23 +401,23 @@ class WebsiteAuditScanner:
         if domain_words:
             candidates.append(f"{domain_words} {self.primary_city}".strip())
 
-        matched_place = None
-        for query in candidates:
-            if not query:
-                continue
-            places = await self._places_text_search(client, query, self.PLACES_FIELD_MASK, max_results=5)
-            if not places:
-                continue
-            # Inspect top 3 candidates to confirm website match
-            for cand in places[:3]:
-                cand_site = (cand.get("websiteUri") or "").lower()
-                if self.clean_host and self.clean_host in cand_site:
-                    matched_place = cand
+        if matched_place is None:
+            for query in candidates:
+                if not query:
+                    continue
+                places = await self._places_text_search(client, query, self.PLACES_FIELD_MASK, max_results=5)
+                if not places:
+                    continue
+                # Inspect top 3 candidates to confirm website match
+                for cand in places[:3]:
+                    cand_site = (cand.get("websiteUri") or "").lower()
+                    if self.clean_host and self.clean_host in cand_site:
+                        matched_place = cand
+                        break
+                if not matched_place:
+                    matched_place = places[0]
+                if matched_place:
                     break
-            if not matched_place:
-                matched_place = places[0]
-            if matched_place:
-                break
 
         # Competitor Map Pack Search using Industry + Primary City
         competitors = []
