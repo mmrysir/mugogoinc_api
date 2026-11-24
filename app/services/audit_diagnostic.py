@@ -527,6 +527,7 @@ class WebsiteAuditScanner:
             "recent_90d_reviews": recent_90d,
             "negative_recent_reviews": negative_recent,
             "profile": {
+                "place_id": matched_place.get("id"),
                 "name": matched_place.get("displayName", {}).get("text") or matched_place.get("name"),
                 "status": matched_place.get("businessStatus", "OPERATIONAL"),
                 "website": matched_place.get("websiteUri", ""),
