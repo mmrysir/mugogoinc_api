@@ -12,6 +12,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.core.config import settings
+from app.services.places import extract_cid_from_maps_url
 
 logger = logging.getLogger("mugogo.audit")
 
@@ -358,6 +359,45 @@ class WebsiteAuditScanner:
             logger.warning("Places Details (New) request error for %s: %s", place_id, e)
         return None
 
+    async def _fetch_place_details_by_cid(self, client: httpx.AsyncClient, cid: str) -> Optional[dict]:
+        """Resolve a Google Place from a decimal CID via the legacy Place Details API.
+
+        The result is normalized into the same shape as the Places (New) details
+        response so the rest of the scanner can consume it unchanged.
+        """
+        if not cid or not self.api_key:
+            return None
+        url = "https://maps.googleapis.com/maps/api/place/details/json"
+        params = {
+            "cid": cid.strip(),
+            "fields": "place_id,name,rating,user_ratings_total,business_status,url,geometry,website",
+            "key": self.api_key,
+        }
+        try:
+            res = await client.get(url, params=params, timeout=15.0)
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("status") == "OK":
+                    r = data.get("result", {}) or {}
+                    name = r.get("name")
+                    loc = (r.get("geometry") or {}).get("location") or {}
+                    lat = loc.get("latitude")
+                    lng = loc.get("longitude")
+                    return {
+                        "id": r.get("place_id"),
+                        "displayName": {"text": name} if name else None,
+                        "rating": r.get("rating"),
+                        "userRatingCount": r.get("user_ratings_total"),
+                        "businessStatus": r.get("business_status"),
+                        "websiteUri": r.get("website"),
+                        "googleMapsUri": r.get("url"),
+                        "location": {"latitude": lat, "longitude": lng} if lat is not None and lng is not None else None,
+                    }
+                logger.warning("Legacy Place Details (cid) returned status: %s", data.get("status"))
+        except Exception as e:
+            logger.warning("Legacy Place Details (cid) error: %s", e)
+        return None
+
     def _extract_place_id_from_maps_url(self, maps_url: str) -> Optional[str]:
         """Best-effort extraction of a place_id / cid token from a Maps URL."""
         if not maps_url:
@@ -379,14 +419,22 @@ class WebsiteAuditScanner:
         if cached and cached[0] > time.time():
             return cached[1] or {}
 
-        # Priority 1: deterministic lookup from a saved Place ID (or parsed from a Maps URL).
+        # Priority 1: deterministic lookup from a saved Place ID.
         matched_place = None
         if self.google_place_id:
             matched_place = await self._fetch_place_details_by_id(client, self.google_place_id)
+
+        # Priority 2: Maps URL / CID lookup (handles Service-Area Businesses).
         if matched_place is None and self.maps_url:
+            # 2a: explicit place_id embedded in the Maps URL
             extracted = self._extract_place_id_from_maps_url(self.maps_url)
             if extracted:
                 matched_place = await self._fetch_place_details_by_id(client, extracted)
+            # 2b: cid (decimal or hex-encoded) in the Maps URL
+            if matched_place is None:
+                cid = extract_cid_from_maps_url(self.maps_url)
+                if cid:
+                    matched_place = await self._fetch_place_details_by_cid(client, cid)
 
         # Build prioritized search candidates so slug inputs (e.g. "mnaranicinnamonspa") still resolve
         # (only used when no deterministic Place ID lookup succeeded).

@@ -221,13 +221,28 @@ async def sync_google_business_profile(
     bu = result.scalar_one_or_none()
     if not bu:
         raise HTTPException(status_code=404, detail="Business Unit not found.")
-    if not bu.google_business_place_id:
+    import re as _re
+
+    place_id = bu.google_business_place_id
+    cid = None
+    if not place_id and bu.google_business_map_url:
+        m = _re.search(r"(ChIJ[A-Za-z0-9_-]+)", bu.google_business_map_url)
+        if m:
+            place_id = m.group(1)
+        else:
+            from app.services.places import extract_cid_from_maps_url
+
+            cid = extract_cid_from_maps_url(bu.google_business_map_url)
+
+    if not place_id and not cid:
         raise HTTPException(
             status_code=400,
-            detail="Business Unit does not have a Google Business Place ID configured. Please add one in profile settings.",
+            detail="Business Unit does not have a Google Business Place ID or Maps URL configured. Please add one in profile settings.",
         )
 
-    place_data = await fetch_google_place_details(bu.google_business_place_id)
+    place_data = await fetch_google_place_details(place_id=place_id, cid=cid)
+    if place_data and place_data.get("place_id") and not bu.google_business_place_id:
+        bu.google_business_place_id = place_data["place_id"]
     if not place_data:
         raise HTTPException(
             status_code=502,
