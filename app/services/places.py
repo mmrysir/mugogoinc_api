@@ -14,29 +14,33 @@ logger = logging.getLogger("mugogo.places")
 
 
 def extract_cid_from_maps_url(maps_url: Optional[str]) -> Optional[str]:
-    """Extract a decimal CID from a Google Maps URL.
+    """Advanced specific CID extractor.
 
-    Supports both '?cid=123456789' query parameters and the embedded
-    '!1s0x<hex1>:0x<hex2>' hex feature ID found in standard Maps URLs.
+    Targets the exact Google Maps business identifier container pattern
+    (0x...:0x[HEX_CID]) to capture the unique business identifier rather than
+    map coordinates or zoom levels. Falls back to an explicit ?cid= param.
     """
     if not maps_url:
         return None
 
-    try:
-        parsed = urlparse(maps_url)
-        cid_param = parse_qs(parsed.query).get("cid")
-        if cid_param and cid_param[0].isdigit():
-            return cid_param[0]
-    except Exception:
-        pass
-
-    hex_match = re.search(r"!1s0x[0-9a-fA-F]+:0x([0-9a-fA-F]+)", maps_url)
-    if hex_match:
+    # 1. Target the precise Google Maps business identifier (12-18 hex chars)
+    match = re.search(r"0x[a-fA-F0-9]+:0x([a-fA-F0-9]{12,18})", maps_url)
+    if match:
         try:
-            return str(int(hex_match.group(1), 16))
+            hex_str = match.group(1)
+            decimal_cid = str(int(hex_str, 16))
+            logger.info("[PLACES_API] Resolved specific hex CID -> Decimal: %s", decimal_cid)
+            return decimal_cid
         except ValueError:
-            return None
+            pass
 
+    # 2. Fallback to strict query parameter check (?cid= with 15-22 digits)
+    cid_match = re.search(r"[?&]cid=([0-9]{15,22})", maps_url)
+    if cid_match:
+        logger.info("[PLACES_API] Resolved explicit URL cid parameter: %s", cid_match.group(1))
+        return cid_match.group(1)
+
+    logger.info("[PLACES_API] Could not find a specific business CID pattern in the provided URL.")
     return None
 
 
@@ -122,25 +126,26 @@ async def fetch_google_place_details(
     place_id: Optional[str] = None,
     maps_url: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Unified hybrid resolver following strict priority:
+    """Unified hybrid resolver with strict priority:
 
-    1. place_id  -> modern Place Details API (Places API New)
-    2. maps_url   -> extract ChIJ... place_id, or fall back to text search
-    3. cid        -> legacy Place Details endpoint (best-effort)
+    1. place_id           -> modern Place Details API (Places API New)
+    2. maps_url + ChIJ...  -> modern Place Details API
+    3. maps_url + text     -> modern Text Search (Places API New)
+    4. cid (direct/URL)    -> legacy Place Details (best-effort)
     """
     resolved_place_id = (place_id or "").strip() or None
 
-    # If maps_url provided and no direct place_id, try to extract one
+    # Priority 2: extract embedded ChIJ... from maps_url
     if not resolved_place_id and maps_url:
         resolved_place_id = extract_place_id_from_url(maps_url)
 
-    # If still no place_id but maps_url provided, try text search from URL slug
+    # Priority 3: text search using the business-name slug from the Maps URL
     if not resolved_place_id and maps_url:
         details = await fetch_place_details_from_url(maps_url)
         if details and details.get("place_id"):
             resolved_place_id = details["place_id"]
 
-    # If maps_url provided and no place_id extracted, try extracting cid from URL
+    # Collect cid from direct param or maps_url
     resolved_cid = (cid or "").strip() or None
     if not resolved_place_id and maps_url and not resolved_cid:
         resolved_cid = extract_cid_from_maps_url(maps_url)
@@ -150,7 +155,7 @@ async def fetch_google_place_details(
         logger.warning("[PLACES_API] No Google API key configured.")
         return None
 
-    # Priority 1: Modern Place ID Lookup (Places API New)
+    # Priority 1 & 2 & 3: Modern Place ID Lookup (Places API New)
     if resolved_place_id:
         async with httpx.AsyncClient(timeout=10.0) as client:
             url = f"https://places.googleapis.com/v1/places/{resolved_place_id}"
@@ -164,19 +169,23 @@ async def fetch_google_place_details(
                     data = resp.json()
                     display_name = data.get("displayName", {})
                     name_str = display_name.get("text") if isinstance(display_name, dict) else None
-                    return {
-                        "place_id": resolved_place_id,
-                        "name": name_str,
-                        "rating": data.get("rating"),
-                        "review_count": data.get("userRatingCount"),
-                        "business_status": data.get("businessStatus"),
-                        "map_url": data.get("googleMapsUri"),
-                    }
-                logger.warning("[PLACES_API] Place Details returned %d: %s", resp.status_code, resp.text[:200])
+                    # Validate that we received a valid business name
+                    if name_str:
+                        return {
+                            "place_id": resolved_place_id,
+                            "name": name_str,
+                            "rating": data.get("rating"),
+                            "review_count": data.get("userRatingCount"),
+                            "business_status": data.get("businessStatus"),
+                            "map_url": data.get("googleMapsUri"),
+                        }
+                    logger.warning("[PLACES_API] Place Details returned no business name for %s", resolved_place_id)
+                else:
+                    logger.warning("[PLACES_API] Place Details returned %d: %s", resp.status_code, resp.text[:200])
             except Exception as e:
                 logger.warning("[PLACES_API] Place Details error: %s", e)
 
-    # Priority 2 & 3: Legacy CID Lookup (best-effort)
+    # Priority 4: Legacy CID Lookup (best-effort, may return REQUEST_DENIED)
     if resolved_cid:
         async with httpx.AsyncClient(timeout=10.0) as client:
             url_legacy = f"https://maps.googleapis.com/maps/api/place/details/json?cid={resolved_cid}&key={api_key}"
@@ -185,16 +194,20 @@ async def fetch_google_place_details(
                 if resp_legacy.status_code == 200:
                     legacy_data = resp_legacy.json()
                     if legacy_data.get("status") == "OK":
-                        res = legacy_data.get("result", {}) or {}
-                        return {
-                            "place_id": res.get("place_id") or resolved_place_id,
-                            "name": res.get("name"),
-                            "rating": res.get("rating"),
-                            "review_count": res.get("user_ratings_total"),
-                            "business_status": res.get("business_status"),
-                            "map_url": res.get("url"),
-                        }
-                    logger.warning("[PLACES_API] Legacy returned status: %s", legacy_data.get("status"))
+                        result = legacy_data.get("result", {}) or {}
+                        # Validate that we received a valid business name
+                        if result.get("name"):
+                            return {
+                                "place_id": result.get("place_id") or resolved_place_id,
+                                "name": result.get("name"),
+                                "rating": result.get("rating"),
+                                "review_count": result.get("user_ratings_total"),
+                                "business_status": result.get("business_status"),
+                                "map_url": result.get("url"),
+                            }
+                        logger.warning("[PLACES_API] Legacy CID %s returned no business name", resolved_cid)
+                    else:
+                        logger.warning("[PLACES_API] Legacy returned status: %s for CID: %s", legacy_data.get("status"), resolved_cid)
             except Exception as e:
                 logger.error("[PLACES_API] Legacy error: %s", e)
 
