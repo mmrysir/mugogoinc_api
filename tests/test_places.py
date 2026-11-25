@@ -5,7 +5,7 @@ from app.services.places import fetch_google_place_details
 
 @pytest.mark.asyncio
 async def test_fetch_google_place_details_empty_id():
-    res = await fetch_google_place_details("")
+    res = await fetch_google_place_details(place_id="")
     assert res is None
 
 
@@ -14,7 +14,7 @@ async def test_fetch_google_place_details_no_api_key(monkeypatch):
     monkeypatch.delenv("GOOGLE_PLACES_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_MAPS_API_KEY", raising=False)
     monkeypatch.setattr("app.services.places.settings.google_cloud_api_key", "")
-    res = await fetch_google_place_details("ChIJN1t_tDeuEmsRUsoyG83frY4")
+    res = await fetch_google_place_details(place_id="ChIJN1t_tDeuEmsRUsoyG83frY4")
     assert res is None
 
 
@@ -34,7 +34,7 @@ async def test_fetch_google_place_details_mock_success(monkeypatch):
     }
 
     with patch("httpx.AsyncClient.get", return_value=mock_resp):
-        res = await fetch_google_place_details("ChIJN1t_tDeuEmsRUsoyG83frY4")
+        res = await fetch_google_place_details(place_id="ChIJN1t_tDeuEmsRUsoyG83frY4")
         assert res is not None
         assert res["rating"] == 4.9
         assert res["review_count"] == 98
