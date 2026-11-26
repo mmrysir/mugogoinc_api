@@ -46,6 +46,9 @@ class BusinessUnit(Base):
     industry: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     social_media_links: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    # ── Multi-channel audit configuration (additive, nullable) ───────────────
+    search_radius_meters: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=5000)
+    geographic_scope_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default="radius")
     google_ads_customer_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     google_search_console_site: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     google_business_place_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

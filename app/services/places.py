@@ -142,6 +142,46 @@ async def fetch_place_details_from_url(url: str) -> Optional[Dict[str, Any]]:
             return None
 
 
+async def resolve_and_persist_business_unit_gbp(bu: Any) -> Optional[Dict[str, Any]]:
+    """Resolve GBP details for a business unit and persist them to the BU record.
+
+    Respects locked/verified state: if the BU is verified, uses the verified
+    place_id exclusively and does not overwrite it.
+    """
+    import json as _json
+
+    # Check if verified
+    metrics = bu.digital_footprint_metrics
+    if isinstance(metrics, str):
+        try:
+            metrics = _json.loads(metrics)
+        except Exception:
+            metrics = {}
+    if not isinstance(metrics, dict):
+        metrics = {}
+    gbp_meta = metrics.get("gbp") or {}
+    is_verified = bool(gbp_meta.get("verified"))
+
+    place_id = bu.google_business_place_id
+    maps_url = bu.google_business_map_url
+
+    place_data = await fetch_google_place_details(place_id=place_id, maps_url=maps_url)
+    if not place_data:
+        return None
+
+    # Persist place_id if not verified and we got a new one
+    if not is_verified and place_data.get("place_id"):
+        bu.google_business_place_id = place_data["place_id"]
+    if place_data.get("rating") is not None:
+        bu.google_business_rating = place_data["rating"]
+    if place_data.get("review_count") is not None:
+        bu.google_business_review_count = place_data["review_count"]
+    if place_data.get("map_url"):
+        bu.google_business_map_url = place_data["map_url"]
+
+    return place_data
+
+
 async def fetch_google_place_details(
     cid: Optional[str] = None,
     place_id: Optional[str] = None,

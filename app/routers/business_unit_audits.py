@@ -249,6 +249,31 @@ async def update_audit_profile(
     return bu
 
 
+# ── Comprehensive Agency Audit (Digital Footprint) ────────────────────────────
+
+
+@router.post(
+    "/footprint-audit",
+    summary="Run comprehensive multi-channel agency audit",
+)
+async def run_footprint_audit(
+    org_id: str,
+    unit_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Orchestrate GBP + social + website + competitors into a digital footprint snapshot."""
+    org, bu = await _load_org_and_bu(org_id, unit_id, db, current_user)
+
+    if current_user.role not in (UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.AGENT):
+        raise HTTPException(status_code=403, detail="Insufficient privileges")
+
+    from app.services.audit_runner import run_comprehensive_agency_audit
+
+    snapshot = await run_comprehensive_agency_audit(bu, db)
+    return {"status": "success", "snapshot": snapshot}
+
+
 # ── Run Audit ─────────────────────────────────────────────────────────────────
 
 
