@@ -26,14 +26,18 @@ def haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> int:
 
 
 async def fetch_scoped_competitors(
-    lat: float,
-    lng: float,
-    radius_meters: int,
-    limit: int,
-    included_types: List[str],
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    radius_meters: int = 10000,
+    limit: int = 5,
+    included_types: List[str] = None,
+    city: str = "",
     exclude_place_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Fetch scoped competitors using Places API (New) searchNearby."""
+    if included_types is None:
+        included_types = []
+
     api_key = (settings.google_cloud_api_key or "").strip()
     if not api_key:
         return []
@@ -48,8 +52,9 @@ async def fetch_scoped_competitors(
         ),
     }
 
-    # Use industry as text query (more flexible than includedTypes which requires valid Google place types)
-    query_text = (included_types[0] if included_types else "business").strip()
+    # Build text query from industry + city
+    industry = included_types[0] if included_types else "business"
+    query_text = f"{industry} in {city}".strip() if city else industry
 
     payload: Dict[str, Any] = {
         "textQuery": query_text,
@@ -132,29 +137,29 @@ async def run_competitive_semantic_module(bu: Any) -> dict:
     city = getattr(bu, "city", "") or ""
 
     # If no lat/lng, use text search fallback (existing competitors.py logic)
+    # Try to resolve lat/lng from place details if not stored
     if lat is None or lng is None:
-        # Fall back to the existing text-search competitor approach
-        from app.services.audit_diagnostic import WebsiteAuditScanner
+        place_id = getattr(bu, "google_business_place_id", None)
+        if place_id:
+            try:
+                from app.services.places import fetch_google_place_details
 
-        # Use a minimal scanner just for competitor search
-        scanner = WebsiteAuditScanner(
-            target_url=getattr(bu, "website_url", "") or getattr(bu, "primary_url", "") or "",
-            business_name=getattr(bu, "name", ""),
-            primary_city=city,
-            industry=industry,
-        )
-        # We can't easily extract just competitors, so return empty for now
-        # The full audit runner handles this
-        competitors = []
-    else:
-        competitors = await fetch_scoped_competitors(
-            lat=lat,
-            lng=lng,
-            radius_meters=radius,
-            limit=limit,
-            included_types=[industry],
-            exclude_place_id=getattr(bu, "google_business_place_id", None),
-        )
+                pd = await fetch_google_place_details(place_id=place_id)
+                if pd and pd.get("map_url"):
+                    # Extract coords from map_url? Not available in normalized shape.
+                    pass
+            except Exception:
+                pass
+
+    competitors = await fetch_scoped_competitors(
+        lat=lat,
+        lng=lng,
+        radius_meters=radius,
+        limit=limit,
+        included_types=[industry],
+        city=city,
+        exclude_place_id=getattr(bu, "google_business_place_id", None),
+    )
 
     # Client social data
     social_links = {}
