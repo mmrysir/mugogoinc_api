@@ -135,8 +135,32 @@ async def update_business_unit(
     if not bu:
         raise HTTPException(status_code=404, detail="Business Unit not found")
 
-    for field, value in body.model_dump(exclude_unset=True).items():
+    import json as _json
+
+    updates = body.model_dump(exclude_unset=True)
+    gbp_changed = (
+        "google_business_place_id" in updates and updates["google_business_place_id"] != bu.google_business_place_id
+    ) or (
+        "google_business_map_url" in updates and updates["google_business_map_url"] != bu.google_business_map_url
+    )
+
+    for field, value in updates.items():
         setattr(bu, field, value)
+
+    if gbp_changed:
+        bu.google_business_rating = None
+        bu.google_business_review_count = None
+        if bu.digital_footprint_metrics:
+            try:
+                footprint = (
+                    _json.loads(bu.digital_footprint_metrics)
+                    if isinstance(bu.digital_footprint_metrics, str)
+                    else dict(bu.digital_footprint_metrics)
+                )
+                footprint.pop("google_business", None)
+                bu.digital_footprint_metrics = _json.dumps(footprint) if footprint else None
+            except Exception:
+                bu.digital_footprint_metrics = None
 
     await db.commit()
     await db.refresh(bu)
@@ -161,8 +185,32 @@ async def update_business_unit_profile(
     if not bu:
         raise HTTPException(status_code=404, detail="Business Unit not found")
 
-    for field, value in body.model_dump(exclude_unset=True).items():
+    import json as _json
+
+    updates = body.model_dump(exclude_unset=True)
+    gbp_changed = (
+        "google_business_place_id" in updates and updates["google_business_place_id"] != bu.google_business_place_id
+    ) or (
+        "google_business_map_url" in updates and updates["google_business_map_url"] != bu.google_business_map_url
+    )
+
+    for field, value in updates.items():
         setattr(bu, field, value)
+
+    if gbp_changed:
+        bu.google_business_rating = None
+        bu.google_business_review_count = None
+        if bu.digital_footprint_metrics:
+            try:
+                footprint = (
+                    _json.loads(bu.digital_footprint_metrics)
+                    if isinstance(bu.digital_footprint_metrics, str)
+                    else dict(bu.digital_footprint_metrics)
+                )
+                footprint.pop("google_business", None)
+                bu.digital_footprint_metrics = _json.dumps(footprint) if footprint else None
+            except Exception:
+                bu.digital_footprint_metrics = None
 
     await db.commit()
     await db.refresh(bu)
@@ -236,13 +284,15 @@ async def sync_google_business_profile(
         )
 
     place_data = await fetch_google_place_details(place_id=place_id, maps_url=bu.google_business_map_url)
-    if place_data and place_data.get("place_id") and not bu.google_business_place_id:
-        bu.google_business_place_id = place_data["place_id"]
     if not place_data:
         raise HTTPException(
             status_code=502,
             detail="Failed to retrieve data from Google Places API. Verify Place ID and GOOGLE_PLACES_API_KEY in environment.",
         )
+
+    # Always update place_id from resolved data (no non-destructive guard)
+    if place_data.get("place_id"):
+        bu.google_business_place_id = place_data["place_id"]
 
     if place_data.get("rating") is not None:
         bu.google_business_rating = place_data["rating"]

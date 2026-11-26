@@ -176,12 +176,37 @@ async def update_business_unit_full_profile(
 
     _org, bu = await _load_org_and_bu(org_id, unit_id, db, current_user)
 
+    import json as _json
+
     updates = payload.model_dump(exclude_unset=True)
     updates.pop("google_business_rating", None)
     updates.pop("google_business_review_count", None)
 
+    # Detect GBP identifier changes to prevent stale metadata leakage
+    gbp_changed = False
+    if "google_business_place_id" in updates and updates["google_business_place_id"] != bu.google_business_place_id:
+        gbp_changed = True
+    if "google_business_map_url" in updates and updates["google_business_map_url"] != bu.google_business_map_url:
+        gbp_changed = True
+
     for field, value in updates.items():
         setattr(bu, field, value)
+
+    # Clear stale GBP metadata when identifiers change
+    if gbp_changed:
+        bu.google_business_rating = None
+        bu.google_business_review_count = None
+        if bu.digital_footprint_metrics:
+            try:
+                footprint = (
+                    _json.loads(bu.digital_footprint_metrics)
+                    if isinstance(bu.digital_footprint_metrics, str)
+                    else dict(bu.digital_footprint_metrics)
+                )
+                footprint.pop("google_business", None)
+                bu.digital_footprint_metrics = _json.dumps(footprint) if footprint else None
+            except Exception:
+                bu.digital_footprint_metrics = None
 
     await db.commit()
     await db.refresh(bu)
