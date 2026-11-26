@@ -658,8 +658,10 @@ async def refresh_competitive_intelligence(
             city=bu.city or "", exclude_place_id=bu.google_business_place_id,
         )
         direct_count = len(direct)
+        direct_error = None
     except Exception as e:
-        direct_count = f"ERROR: {e}"
+        direct_count = 0
+        direct_error = str(e)[:300]
 
     # Debug info
     updated_metrics["_debug"] = {
@@ -669,6 +671,7 @@ async def refresh_competitive_intelligence(
         "bu_lng": bu.longitude,
         "competitors_found": len(updated_metrics.get("competitor_matrix", [])),
         "direct_fetch_count": direct_count,
+        "direct_error": direct_error,
     }
     # Merge into digital_footprint_metrics
     existing = bu.digital_footprint_metrics
