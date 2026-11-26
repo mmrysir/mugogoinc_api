@@ -12,7 +12,6 @@ from app.core.config import settings
 from app.services.semantic_nlp import analyze_review_corpus
 
 logger = logging.getLogger("mugogo.competitors")
-# force recompile v2
 
 PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 
