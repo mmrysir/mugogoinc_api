@@ -297,6 +297,20 @@ async def run_bu_audit(
             bu.name = payload.business_name
         await db.flush()
 
+    # Check if GBP is agent/admin-verified (locked)
+    import json as _json
+
+    metrics = bu.digital_footprint_metrics
+    if isinstance(metrics, str):
+        try:
+            metrics = _json.loads(metrics)
+        except Exception:
+            metrics = {}
+    if not isinstance(metrics, dict):
+        metrics = {}
+    gbp_meta = metrics.get("gbp") or {}
+    is_verified = bool(gbp_meta.get("verified"))
+
     scanner = WebsiteAuditScanner(
         target_url=url,
         business_name=business_name,
@@ -305,9 +319,26 @@ async def run_bu_audit(
         phone=phone,
         google_place_id=bu.google_business_place_id,
         maps_url=bu.google_business_map_url,
+        gbp_verified=is_verified,
     )
     report = await scanner.run_full_diagnostic()
     overall_score = float(report.get("scores", {}).get("overall", 0.0))
+
+    # If verified, refresh rating & review count from the locked Place ID
+    if is_verified and bu.google_business_place_id:
+        from app.services.places import fetch_google_place_details
+
+        place_data = await fetch_google_place_details(place_id=bu.google_business_place_id)
+        if place_data:
+            if place_data.get("rating") is not None:
+                bu.google_business_rating = place_data["rating"]
+            if place_data.get("review_count") is not None:
+                bu.google_business_review_count = place_data["review_count"]
+        gbp_meta["rating"] = bu.google_business_rating
+        gbp_meta["review_count"] = bu.google_business_review_count
+        metrics["gbp"] = gbp_meta
+        bu.digital_footprint_metrics = metrics
+        await db.flush()
 
     lead = AuditLead(
         business_name=business_name,

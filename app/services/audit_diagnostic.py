@@ -62,6 +62,7 @@ class WebsiteAuditScanner:
         phone: Optional[str] = None,
         google_place_id: Optional[str] = None,
         maps_url: Optional[str] = None,
+        gbp_verified: bool = False,
     ):
         raw_url = target_url.strip()
         if not raw_url.startswith(("http://", "https://")):
@@ -77,6 +78,7 @@ class WebsiteAuditScanner:
         self.phone = (phone or "").strip() if phone else ""
         self.google_place_id = (google_place_id or "").strip() if google_place_id else ""
         self.maps_url = (maps_url or "").strip() if maps_url else ""
+        self.gbp_verified = gbp_verified
         self.api_key = (settings.google_cloud_api_key or os.getenv("GOOGLE_CLOUD_API_KEY") or "").strip()
 
         self.headers = {
@@ -384,8 +386,8 @@ class WebsiteAuditScanner:
         if self.google_place_id:
             matched_place = await self._fetch_place_details_by_id(client, self.google_place_id)
 
-        # Priority 2: Maps URL / CID lookup (handles Service-Area Businesses).
-        if matched_place is None and self.maps_url:
+        # Priority 2: Maps URL lookup (only when not verified-locked)
+        if not self.gbp_verified and matched_place is None and self.maps_url:
             # 2a: explicit place_id embedded in the Maps URL
             extracted = self._extract_place_id_from_maps_url(self.maps_url)
             if extracted:
@@ -401,20 +403,20 @@ class WebsiteAuditScanner:
                 except Exception as e:
                     logger.warning("Maps-URL text search failed: %s", e)
 
-        # Build prioritized search candidates so slug inputs (e.g. "mnaranicinnamonspa") still resolve
-        # (only used when no deterministic Place ID lookup succeeded).
-        cleaned_title = re.split(r"[\|\-\–\—\:]", page_title)[0].strip() if page_title else ""
-        domain_words = re.sub(r"\.[a-z]{2,6}$", "", self.clean_host).replace("-", " ").replace("_", " ")
+        # Build prioritized search candidates (only used when not verified-locked
+        # and no deterministic Place ID lookup succeeded).
+        if not self.gbp_verified and matched_place is None:
+            cleaned_title = re.split(r"[\|\-\–\—\:]", page_title)[0].strip() if page_title else ""
+            domain_words = re.sub(r"\.[a-z]{2,6}$", "", self.clean_host).replace("-", " ").replace("_", " ")
 
-        candidates = []
-        if self.business_name:
-            candidates.append(f"{self.business_name} {self.primary_city}".strip())
-        if cleaned_title and cleaned_title.lower() != self.business_name.lower():
-            candidates.append(f"{cleaned_title} {self.primary_city}".strip())
-        if domain_words:
-            candidates.append(f"{domain_words} {self.primary_city}".strip())
+            candidates = []
+            if self.business_name:
+                candidates.append(f"{self.business_name} {self.primary_city}".strip())
+            if cleaned_title and cleaned_title.lower() != self.business_name.lower():
+                candidates.append(f"{cleaned_title} {self.primary_city}".strip())
+            if domain_words:
+                candidates.append(f"{domain_words} {self.primary_city}".strip())
 
-        if matched_place is None:
             for query in candidates:
                 if not query:
                     continue
