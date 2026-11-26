@@ -65,6 +65,19 @@ def extract_query_from_maps_url(url: str) -> Optional[str]:
     return unquote(raw_slug.replace("+", " ")).strip() or None
 
 
+def extract_coords_from_maps_url(url: str) -> Optional[tuple[float, float]]:
+    """Extract (latitude, longitude) from a Google Maps URL's @lat,lng segment."""
+    if not url:
+        return None
+    match = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+)", url)
+    if match:
+        try:
+            return float(match.group(1)), float(match.group(2))
+        except ValueError:
+            return None
+    return None
+
+
 def _api_key() -> Optional[str]:
     return (
         (getattr(settings, "google_cloud_api_key", "") or "").strip()
@@ -96,7 +109,15 @@ async def fetch_place_details_from_url(url: str) -> Optional[Dict[str, Any]]:
             "X-Goog-Api-Key": api_key,
             "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.userRatingCount,places.businessStatus,places.googleMapsUri,places.websiteUri",
         }
-        payload = {"textQuery": query}
+        payload: Dict[str, Any] = {"textQuery": query}
+        coords = extract_coords_from_maps_url(url)
+        if coords:
+            payload["locationBias"] = {
+                "circle": {
+                    "center": {"latitude": coords[0], "longitude": coords[1]},
+                    "radius": 5000.0,
+                }
+            }
         try:
             resp = await client.post(search_url, json=payload, headers=headers)
             if resp.status_code != 200:
