@@ -343,6 +343,123 @@ async def confirm_google_business_profile(
     }
 
 
+# ── Social Media Verification Flow ───────────────────────────────────────────
+
+
+class SocialPreviewRequest(BaseModel):
+    platform: str
+    url: str
+
+
+class SocialConfirmRequest(BaseModel):
+    platform: str
+    url: str
+    handle: Optional[str] = None
+    followers: Optional[int] = None
+    posts_count: Optional[int] = None
+
+
+@router.post("/{bu_id}/social/preview")
+async def preview_social_profile(
+    bu_id: str,
+    payload: SocialPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Dry-run lookup for a social profile. Fetches public metadata
+    (name, bio, follower count) WITHOUT mutating the database.
+    """
+    from app.services.social_scraper import audit_social_profile
+
+    platform = payload.platform.strip().lower()
+    url = payload.url.strip()
+
+    if not platform or not url:
+        raise HTTPException(status_code=400, detail="Platform and URL are required.")
+
+    result = await audit_social_profile(platform, url)
+    return {
+        "platform": platform,
+        "url": url,
+        "active": result.get("active", False),
+        "followers": result.get("followers"),
+        "description_snippet": result.get("description_snippet"),
+        "source": result.get("source"),
+        "status_code": result.get("status_code"),
+        "error": result.get("error"),
+    }
+
+
+@router.post("/{bu_id}/social/confirm")
+async def confirm_social_profile(
+    bu_id: str,
+    payload: SocialConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Commits the verified social profile to the database and locks it."""
+    import json as _json
+    from datetime import datetime, timezone
+
+    result = await db.execute(select(BusinessUnit).where(BusinessUnit.id == bu_id))
+    bu = result.scalar_one_or_none()
+    if not bu:
+        raise HTTPException(status_code=404, detail="Business Unit not found.")
+
+    platform = payload.platform.strip().lower()
+    url = payload.url.strip()
+
+    if not platform or not url:
+        raise HTTPException(status_code=400, detail="Platform and URL are required.")
+
+    # Parse existing social_profiles
+    profiles = {}
+    if bu.social_profiles:
+        try:
+            profiles = (
+                _json.loads(bu.social_profiles)
+                if isinstance(bu.social_profiles, str)
+                else dict(bu.social_profiles)
+            )
+        except Exception:
+            profiles = {}
+
+    profiles[platform] = {
+        "url": url,
+        "handle": payload.handle,
+        "verified": True,
+        "followers": payload.followers,
+        "posts_count": payload.posts_count,
+        "last_audited": datetime.now(timezone.utc).isoformat(),
+        "verified_by": str(current_user.id),
+    }
+    bu.social_profiles = profiles
+
+    # Also update social_media_links for backward compat
+    social_links = {}
+    if bu.social_media_links:
+        try:
+            social_links = (
+                _json.loads(bu.social_media_links)
+                if isinstance(bu.social_media_links, str) and bu.social_media_links.strip().startswith("{")
+                else {}
+            )
+        except Exception:
+            social_links = {}
+    social_links[platform] = url
+    bu.social_media_links = _json.dumps(social_links)
+
+    await db.commit()
+    await db.refresh(bu)
+
+    return {
+        "status": "verified",
+        "platform": platform,
+        "url": url,
+        "verified": True,
+    }
+
+
 @router.post("/{bu_id}/discover-socials")
 async def trigger_gsc_social_discovery(
     bu_id: str,

@@ -46,6 +46,10 @@ class BusinessUnit(Base):
     industry: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     social_media_links: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    # ── Verified social profiles (JSONB) ────────────────────────────────────
+    # Stores per-platform status: { "instagram": { "url": ..., "handle": ...,
+    #   "verified": true, "followers": ..., "posts_count": ..., "last_audited": ... } }
+    social_profiles: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=dict)
     # ── Multi-channel audit configuration (additive, nullable) ───────────────
     search_radius_meters: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=5000)
     geographic_scope_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default="radius")

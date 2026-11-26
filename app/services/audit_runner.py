@@ -20,16 +20,28 @@ async def run_comprehensive_agency_audit(bu: Any, db: AsyncSession) -> dict:
     # 1. Resolve GBP (respecting locked verified state)
     gbp_data = await resolve_and_persist_business_unit_gbp(bu)
 
-    # 2. Audit Social Channels
-    social_links_raw = bu.social_media_links
+    # 2. Audit Social Channels (prefer verified social_profiles)
     social_links: Dict[str, str] = {}
-    if isinstance(social_links_raw, str):
+    social_profiles = getattr(bu, "social_profiles", None)
+    if isinstance(social_profiles, str):
         try:
-            social_links = json.loads(social_links_raw)
+            social_profiles = json.loads(social_profiles)
         except Exception:
-            social_links = {}
-    elif isinstance(social_links_raw, dict):
-        social_links = social_links_raw
+            social_profiles = {}
+    if isinstance(social_profiles, dict):
+        for platform, info in social_profiles.items():
+            if isinstance(info, dict) and info.get("url"):
+                social_links[platform] = info["url"]
+    # Fallback to social_media_links if no verified profiles
+    if not social_links:
+        raw = getattr(bu, "social_media_links", None)
+        if isinstance(raw, str):
+            try:
+                social_links = json.loads(raw)
+            except Exception:
+                social_links = {}
+        elif isinstance(raw, dict):
+            social_links = raw
 
     social_results = {
         "instagram": await audit_social_profile("instagram", social_links.get("instagram")),
