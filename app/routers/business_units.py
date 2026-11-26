@@ -606,6 +606,58 @@ async def sync_google_business_profile(
     }
 
 
+# ── Competitive Scope Refresh ─────────────────────────────────────────────────
+
+
+class ScopeRefreshRequest(BaseModel):
+    search_radius_meters: int = 10000
+    competitor_limit: int = 5
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+@router.post("/{bu_id}/competitors/refresh")
+async def refresh_competitive_intelligence(
+    bu_id: str,
+    payload: ScopeRefreshRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Re-scope and re-run competitive & semantic intelligence for a BU."""
+    result = await db.execute(select(BusinessUnit).where(BusinessUnit.id == bu_id))
+    bu = result.scalar_one_or_none()
+    if not bu:
+        raise HTTPException(status_code=404, detail="Business Unit not found.")
+
+    # Persist updated scope settings
+    bu.search_radius_meters = payload.search_radius_meters
+    bu.competitor_limit = payload.competitor_limit
+    if payload.latitude is not None:
+        bu.latitude = payload.latitude
+    if payload.longitude is not None:
+        bu.longitude = payload.longitude
+
+    from app.services.competitors import run_competitive_semantic_module
+
+    updated_metrics = await run_competitive_semantic_module(bu)
+    # Merge into digital_footprint_metrics
+    existing = bu.digital_footprint_metrics
+    if isinstance(existing, str):
+        try:
+            existing = __import__("json").loads(existing)
+        except Exception:
+            existing = {}
+    if not isinstance(existing, dict):
+        existing = {}
+    existing["competitive_intelligence"] = updated_metrics
+    bu.digital_footprint_metrics = existing
+
+    await db.commit()
+    await db.refresh(bu)
+
+    return updated_metrics
+
+
 @router.delete("/{bu_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_business_unit(
     bu_id: str,

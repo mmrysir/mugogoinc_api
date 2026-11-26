@@ -53,6 +53,10 @@ class BusinessUnit(Base):
     # ── Multi-channel audit configuration (additive, nullable) ───────────────
     search_radius_meters: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=5000)
     geographic_scope_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default="radius")
+    # ── Competitive scoping (additive, nullable) ─────────────────────────────
+    competitor_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=5)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     google_ads_customer_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     google_search_console_site: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     google_business_place_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

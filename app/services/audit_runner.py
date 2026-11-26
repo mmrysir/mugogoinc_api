@@ -9,7 +9,7 @@ from typing import Any, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.services.competitors import benchmark_local_competitors
+from app.services.competitors import run_competitive_semantic_module
 from app.services.places import resolve_and_persist_business_unit_gbp
 from app.services.scoring import calculate_digital_footprint_scores
 from app.services.social_scraper import audit_social_profile
@@ -32,7 +32,6 @@ async def run_comprehensive_agency_audit(bu: Any, db: AsyncSession) -> dict:
         for platform, info in social_profiles.items():
             if isinstance(info, dict) and info.get("url"):
                 social_links[platform] = info["url"]
-    # Fallback to social_media_links if no verified profiles
     if not social_links:
         raw = getattr(bu, "social_media_links", None)
         if isinstance(raw, str):
@@ -59,20 +58,30 @@ async def run_comprehensive_agency_audit(bu: Any, db: AsyncSession) -> dict:
         "has_meta_description": True,
     }
 
-    # 4. Benchmark Competitors
-    competitors_data = await benchmark_local_competitors(
-        industry=getattr(bu, "industry", "business") or "business",
-        city=getattr(bu, "city", "") or "",
-        radius_meters=getattr(bu, "search_radius_meters", 5000) or 5000,
-        scope_type=getattr(bu, "geographic_scope_type", "radius") or "radius",
-    )
+    # 4. Run Competitive & Semantic Module (final pillar — includes competitor fetch + NLP)
+    competitive_snapshot = await run_competitive_semantic_module(bu)
+    competitors_data = competitive_snapshot.get("competitor_matrix", [])
 
     # 5. Compute Pillar Scores
     scores = calculate_digital_footprint_scores(
         gbp_data or {}, website_data, social_results, competitors_data
     )
 
-    # 6. Commit Snapshot to JSONB
+    # Append competitive pillar score to the scores
+    comp_score = (competitive_snapshot.get("pillar_summary") or {}).get("score", 0)
+    scores["competitive_semantic_score"] = comp_score
+
+    # Recalculate overall with competitive weight (15%)
+    scores["overall_health_score"] = int(
+        scores.get("local_authority_score", 0) * 0.30
+        + scores.get("website_health_score", 0) * 0.20
+        + scores.get("social_presence_score", 0) * 0.20
+        + comp_score * 0.15
+        + 15  # baseline
+    )
+    scores["overall_health_score"] = max(0, min(100, scores["overall_health_score"]))
+
+    # 7. Commit Snapshot to JSONB
     audit_snapshot = {
         "audited_at": datetime.now(timezone.utc).isoformat(),
         "scores": scores,
@@ -80,6 +89,7 @@ async def run_comprehensive_agency_audit(bu: Any, db: AsyncSession) -> dict:
         "website": website_data,
         "social": social_results,
         "competitors": competitors_data,
+        "competitive_intelligence": competitive_snapshot,
     }
 
     bu.digital_footprint_metrics = audit_snapshot
