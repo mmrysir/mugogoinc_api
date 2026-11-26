@@ -639,11 +639,24 @@ async def refresh_competitive_intelligence(
 
     from app.services.competitors import run_competitive_semantic_module
 
+    # Debug: resolve lat/lng
+    _debug_lat = bu.latitude
+    _debug_lng = bu.longitude
+    _debug_place = bu.google_business_place_id
     try:
         updated_metrics = await run_competitive_semantic_module(bu)
     except Exception as e:
         import traceback
         raise HTTPException(status_code=500, detail=f"Module error: {type(e).__name__}: {str(e)[:500]}")
+
+    # Debug info
+    updated_metrics["_debug"] = {
+        "bu_city": bu.city,
+        "bu_industry": bu.industry,
+        "bu_lat": bu.latitude,
+        "bu_lng": bu.longitude,
+        "competitors_found": len(updated_metrics.get("competitor_matrix", [])),
+    }
     # Merge into digital_footprint_metrics
     existing = bu.digital_footprint_metrics
     if isinstance(existing, str):
