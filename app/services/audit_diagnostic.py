@@ -314,6 +314,14 @@ class WebsiteAuditScanner:
         "places.businessStatus,places.regularOpeningHours,places.photos,"
         "places.reviews,places.primaryTypeDisplayName,places.location"
     )
+    # Field mask for the Place Details endpoint (GET /v1/places/{id}) — no "places." prefix
+    PLACES_DETAILS_FIELD_MASK = (
+        "id,displayName,formattedAddress,"
+        "nationalPhoneNumber,internationalPhoneNumber,"
+        "websiteUri,rating,userRatingCount,"
+        "businessStatus,regularOpeningHours,photos,"
+        "reviews,primaryTypeDisplayName,location"
+    )
     PLACES_COMPETITOR_FIELD_MASK = "places.id,places.displayName,places.rating,places.userRatingCount,places.location,places.formattedAddress"
 
     async def _places_text_search(self, client: httpx.AsyncClient, text_query: str, field_mask: str, max_results: int = 5, location_bias: Optional[dict] = None) -> List[Dict[str, Any]]:
@@ -349,7 +357,7 @@ class WebsiteAuditScanner:
         headers = {
             "Content-Type": "application/json",
             "X-Goog-Api-Key": self.api_key,
-            "X-Goog-FieldMask": self.PLACES_FIELD_MASK,
+            "X-Goog-FieldMask": self.PLACES_DETAILS_FIELD_MASK,
         }
         try:
             res = await client.get(url, headers=headers, timeout=15.0)
