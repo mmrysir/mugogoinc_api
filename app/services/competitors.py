@@ -84,7 +84,7 @@ async def fetch_scoped_competitors(
             continue
 
         loc = p.get("location", {})
-        c_lat, c_lng = loc.get("latitude", lat), loc.get("longitude", lng)
+        c_lat, c_lng = loc.get("latitude", lat or 0), loc.get("longitude", lng or 0)
         raw_reviews = [
             {"text": rev.get("text", {}).get("text", ""), "rating": rev.get("rating", 3)}
             for rev in p.get("reviews", [])
@@ -94,7 +94,7 @@ async def fetch_scoped_competitors(
             {
                 "place_id": pid,
                 "name": (p.get("displayName") or {}).get("text", "Unknown Competitor"),
-                "distance_meters": haversine_meters(lat, lng, c_lat, c_lng),
+                "distance_meters": haversine_meters(lat or 0, lng or 0, c_lat, c_lng),
                 "rating": p.get("rating", 0.0),
                 "review_count": p.get("userRatingCount", 0),
                 "reviews": raw_reviews,
@@ -145,9 +145,13 @@ async def run_competitive_semantic_module(bu: Any) -> dict:
                 from app.services.places import fetch_google_place_details
 
                 pd = await fetch_google_place_details(place_id=place_id)
-                if pd and pd.get("map_url"):
-                    # Extract coords from map_url? Not available in normalized shape.
-                    pass
+                if pd:
+                    lat = pd.get("latitude")
+                    lng = pd.get("longitude")
+                    if lat is not None:
+                        bu.latitude = lat
+                    if lng is not None:
+                        bu.longitude = lng
             except Exception:
                 pass
 

@@ -222,7 +222,7 @@ async def fetch_google_place_details(
             url = f"https://places.googleapis.com/v1/places/{resolved_place_id}"
             headers = {
                 "X-Goog-Api-Key": api_key,
-                "X-Goog-FieldMask": "id,displayName,rating,userRatingCount,businessStatus,googleMapsUri",
+                "X-Goog-FieldMask": "id,displayName,rating,userRatingCount,businessStatus,googleMapsUri,location",
             }
             try:
                 resp = await client.get(url, headers=headers)
@@ -230,6 +230,7 @@ async def fetch_google_place_details(
                     data = resp.json()
                     display_name = data.get("displayName", {})
                     name_str = display_name.get("text") if isinstance(display_name, dict) else None
+                    loc = data.get("location", {}) or {}
                     # Validate that we received a valid business name
                     if name_str:
                         return {
@@ -239,6 +240,8 @@ async def fetch_google_place_details(
                             "review_count": data.get("userRatingCount"),
                             "business_status": data.get("businessStatus"),
                             "map_url": data.get("googleMapsUri"),
+                            "latitude": loc.get("latitude"),
+                            "longitude": loc.get("longitude"),
                         }
                     logger.warning("[PLACES_API] Place Details returned no business name for %s", resolved_place_id)
                 else:
