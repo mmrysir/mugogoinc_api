@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.routers.auth import get_current_user
 from app.models.business_unit import BusinessUnit
 from app.models.organization import Organization
+from pydantic import BaseModel
 from app.models.tenant_channels import AgentOrgAssignment
 from app.models.user import User, UserRole
 from app.schemas.business_unit import (
@@ -215,6 +216,130 @@ async def update_business_unit_profile(
     await db.commit()
     await db.refresh(bu)
     return bu
+
+
+# ── GBP Verification Flow ────────────────────────────────────────────────────
+
+
+class GBPPreviewRequest(BaseModel):
+    place_id: Optional[str] = None
+    maps_url: Optional[str] = None
+
+
+class GBPConfirmRequest(BaseModel):
+    place_id: str
+    maps_url: Optional[str] = None
+    name: Optional[str] = None
+    rating: Optional[float] = None
+    review_count: Optional[int] = None
+
+
+@router.post("/{bu_id}/gbp/preview")
+async def preview_google_business_profile(
+    bu_id: str,
+    payload: GBPPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Dry-run lookup for agent/admin verification. Fetches GBP details
+    from a Place ID or Maps URL WITHOUT mutating the database.
+    """
+    from app.services.places import fetch_google_place_details
+
+    clean_place_id = (payload.place_id or "").strip() or None
+    clean_maps_url = (payload.maps_url or "").strip() or None
+
+    if not clean_place_id and not clean_maps_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either a Google Place ID or a Google Maps URL.",
+        )
+
+    place_data = await fetch_google_place_details(
+        place_id=clean_place_id,
+        maps_url=clean_maps_url,
+    )
+    if not place_data:
+        raise HTTPException(
+            status_code=404,
+            detail="No Google Business Profile found for that Place ID or Maps URL.",
+        )
+
+    return {
+        "place_id": place_data.get("place_id") or clean_place_id,
+        "name": place_data.get("name"),
+        "rating": place_data.get("rating"),
+        "review_count": place_data.get("review_count"),
+        "business_status": place_data.get("business_status"),
+        "map_url": place_data.get("map_url") or clean_maps_url,
+    }
+
+
+@router.post("/{bu_id}/gbp/confirm")
+async def confirm_google_business_profile(
+    bu_id: str,
+    payload: GBPConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Commits the agent/admin-verified GBP to the database and locks it so
+    automated name-based discovery does not overwrite it on future audits.
+    """
+    import json as _json
+
+    result = await db.execute(select(BusinessUnit).where(BusinessUnit.id == bu_id))
+    bu = result.scalar_one_or_none()
+    if not bu:
+        raise HTTPException(status_code=404, detail="Business Unit not found.")
+
+    clean_place_id = payload.place_id.strip()
+    if not clean_place_id:
+        raise HTTPException(status_code=400, detail="A valid Place ID is required to confirm.")
+
+    # Update core business unit fields
+    bu.google_business_place_id = clean_place_id
+    if payload.maps_url:
+        bu.google_business_map_url = payload.maps_url.strip()
+    if payload.rating is not None:
+        bu.google_business_rating = payload.rating
+    if payload.review_count is not None:
+        bu.google_business_review_count = payload.review_count
+
+    # Store verification lock in digital_footprint_metrics["gbp"]
+    metrics = {}
+    if bu.digital_footprint_metrics:
+        try:
+            metrics = (
+                _json.loads(bu.digital_footprint_metrics)
+                if isinstance(bu.digital_footprint_metrics, str)
+                else dict(bu.digital_footprint_metrics)
+            )
+        except Exception:
+            metrics = {}
+    metrics["gbp"] = {
+        "place_id": clean_place_id,
+        "name": payload.name,
+        "rating": payload.rating,
+        "review_count": payload.review_count,
+        "map_url": bu.google_business_map_url,
+        "verified": True,
+        "verified_by": str(current_user.id),
+        "verified_at": datetime.now(timezone.utc).isoformat(),
+    }
+    bu.digital_footprint_metrics = metrics
+
+    await db.commit()
+    await db.refresh(bu)
+
+    return {
+        "status": "verified",
+        "place_id": bu.google_business_place_id,
+        "name": payload.name,
+        "rating": bu.google_business_rating,
+        "review_count": bu.google_business_review_count,
+        "map_url": bu.google_business_map_url,
+        "verified": True,
+    }
 
 
 @router.post("/{bu_id}/discover-socials")
