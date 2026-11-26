@@ -28,6 +28,7 @@ class BusinessUnitUpdate(BaseModel):
     owner_email: Optional[str] = Field(None, max_length=255)
     primary_url: Optional[str] = Field(None, max_length=512)
     social_media_links: Optional[str] = Field(None, max_length=2048)
+    social_profiles: Optional[Dict[str, Any]] = None
     google_ads_customer_id: Optional[str] = Field(None, max_length=50)
     google_search_console_site: Optional[str] = Field(None, max_length=512)
     google_business_place_id: Optional[str] = Field(None, max_length=255)
@@ -64,6 +65,7 @@ class BusinessUnitResponse(BaseModel):
     industry: Optional[str] = None
     phone: Optional[str] = None
     social_media_links: Optional[str] = None
+    social_profiles: Optional[Dict[str, Any]] = None
     google_ads_customer_id: Optional[str] = None
     google_search_console_site: Optional[str] = None
     google_business_place_id: Optional[str] = None
@@ -115,6 +117,7 @@ class BusinessUnitResponse(BaseModel):
                 "industry": getattr(data, "industry", None),
                 "phone": getattr(data, "phone", None),
                 "social_media_links": getattr(data, "social_media_links", None),
+                "social_profiles": getattr(data, "social_profiles", None),
                 "google_ads_customer_id": getattr(data, "google_ads_customer_id", None),
                 "google_search_console_site": getattr(data, "google_search_console_site", None),
                 "google_business_place_id": getattr(data, "google_business_place_id", None),
