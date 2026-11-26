@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.routers.auth import get_current_user
+from app.models.audit import AuditLead
 from app.models.business_unit import BusinessUnit
 from app.models.organization import Organization
 from pydantic import BaseModel
@@ -446,6 +447,30 @@ async def sync_google_business_profile(
         "map_url": bu.google_business_map_url,
     }
     bu.digital_footprint_metrics = json.dumps(footprint)
+
+    # Update the latest audit's report_data so the audit report reflects synced GBP data
+    try:
+        from sqlalchemy import select as _select
+
+        audit_result = await db.execute(
+            _select(AuditLead)
+            .where(AuditLead.business_unit_id == bu_id)
+            .order_by(AuditLead.created_at.desc())
+            .limit(1)
+        )
+        latest_audit = audit_result.scalar_one_or_none()
+        if latest_audit and isinstance(latest_audit.report_data, dict):
+            report = dict(latest_audit.report_data)
+            if "metrics" in report and isinstance(report["metrics"], dict):
+                report["metrics"]["google_rating"] = bu.google_business_rating
+                report["metrics"]["google_reviews"] = bu.google_business_review_count
+            if "gbp_profile" in report and isinstance(report["gbp_profile"], dict):
+                report["gbp_profile"]["rating"] = bu.google_business_rating
+                report["gbp_profile"]["review_count"] = bu.google_business_review_count
+                report["gbp_profile"]["place_id"] = bu.google_business_place_id
+            latest_audit.report_data = report
+    except Exception:
+        pass
 
     await db.commit()
     await db.refresh(bu)
