@@ -639,7 +639,11 @@ async def refresh_competitive_intelligence(
 
     from app.services.competitors import run_competitive_semantic_module
 
-    updated_metrics = await run_competitive_semantic_module(bu)
+    try:
+        updated_metrics = await run_competitive_semantic_module(bu)
+    except Exception as e:
+        import traceback
+        raise HTTPException(status_code=500, detail=f"Module error: {type(e).__name__}: {str(e)[:500]}")
     # Merge into digital_footprint_metrics
     existing = bu.digital_footprint_metrics
     if isinstance(existing, str):
