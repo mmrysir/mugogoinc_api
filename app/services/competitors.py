@@ -13,7 +13,7 @@ from app.services.semantic_nlp import analyze_review_corpus
 
 logger = logging.getLogger("mugogo.competitors")
 
-PLACES_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
+PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 
 
 def haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> int:
@@ -43,24 +43,29 @@ async def fetch_scoped_competitors(
         "X-Goog-Api-Key": api_key,
         "X-Goog-FieldMask": (
             "places.id,places.displayName,places.location,"
-            "places.rating,places.userRatingCount,places.reviews"
+            "places.rating,places.userRatingCount,places.reviews,"
+            "places.formattedAddress"
         ),
     }
 
-    payload = {
-        "includedTypes": included_types[:5] if included_types else ["establishment"],
+    # Use industry as text query (more flexible than includedTypes which requires valid Google place types)
+    query_text = (included_types[0] if included_types else "business").strip()
+
+    payload: Dict[str, Any] = {
+        "textQuery": query_text,
         "maxResultCount": min(max(limit + 1, 1), 20),
-        "locationRestriction": {
+    }
+    if lat is not None and lng is not None:
+        payload["locationBias"] = {
             "circle": {
                 "center": {"latitude": lat, "longitude": lng},
                 "radius": float(radius_meters),
             }
-        },
-    }
+        }
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
-            resp = await client.post(PLACES_NEARBY_URL, json=payload, headers=headers)
+            resp = await client.post(PLACES_TEXT_SEARCH_URL, json=payload, headers=headers)
             resp.raise_for_status()
             places = resp.json().get("places", [])
         except Exception as e:
